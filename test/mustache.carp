@@ -93,4 +93,11 @@
                   })
                 "complicated sections work"
   )
+  (assert-equal test
+                "with switched tags!"
+                &(template
+                  "{{=& &=}}&switched& tags&^inverted&!&/inverted&"
+                  &{@"switched" (Mustache.Str @"with switched")})
+                "switching tags works"
+  )
 )

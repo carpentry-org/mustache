@@ -3,10 +3,20 @@
   ;(Lst [(Array String)]) TODO
   (Lambda [(Fn [String] String)]))
 
+; TODO reduce duplication
 (defmodule Mustache
   (hidden copy)
   (hidden Lambda)
   (hidden Str)
+
+  (hidden START-KEY)
+  (def START-KEY @"*mustache-start*")
+  (hidden END-KEY)
+  (def END-KEY @"*mustache-end*")
+  (hidden DFLT-START)
+  (def DFLT-START (Mustache.Str @"{{"))
+  (hidden DFLT-END)
+  (def DFLT-END (Mustache.Str @"}}"))
 
   (private prn)
   (hidden prn)
@@ -39,17 +49,47 @@
     "&gt;" -1)
   )
 
+  (private start)
+  (hidden start)
+  (defn start [m]
+    (str &(Map.get-with-default m &START-KEY &(Mustache.Str @""))))
+
+  (private end)
+  (hidden end)
+  (defn end [m]
+    (str &(Map.get-with-default m &END-KEY &(Mustache.Str @""))))
+
+  (private pat)
+  (hidden pat)
+  (defn pat [s m]
+    (Pattern.init &(fmt "%s%s%s" &(start m) s &(end m))))
+
   (private replace-comment)
   (hidden replace-comment)
-  (defn replace-comment [s values] (Pattern.substitute #"{{!.*}}" &s "" -1))
+  (defn replace-comment [s values]
+    (Pattern.substitute &(pat "!.*" values) &s "" -1))
+
+  (private replace-delimiter)
+  (hidden replace-delimiter)
+  (defn replace-delimiter [s values]
+    (let-do [ks (Pattern.global-match &(pat "=(.*) +(.*)=" values) &s)]
+      (for [i 0 (Array.length &ks)]
+        (let-do [start (String.trim (Array.nth (Array.nth &ks i) 0))
+                 end (String.trim (Array.nth (Array.nth &ks i) 0))
+                 r (pat "=(.*) +(.*)=" values)]
+          (Map.put! values &START-KEY &(Mustache.Str start))
+          (Map.put! values &END-KEY &(Mustache.Str end))
+          (set! s (Pattern.substitute &r &s "" 1))))
+      s))
 
   (private replace-unescaped)
   (hidden replace-unescaped)
   (defn replace-unescaped [s values]
-    (let-do [ks (Pattern.global-match #"{{{([^}]*)}}}" &s)]
+    (let-do [pattern (pat &(format "{([^(%s)]*)}" &(end values)) values)
+             ks (Pattern.global-match &pattern &s)]
       (for [i 0 (Array.length &ks)]
         (let [m (Array.nth (Array.nth &ks i) 0)
-              e (Pattern.init &(format "{{{%s}}}" m))
+              e (pat &(format "{%s}" m) values)
               k (String.trim m)
               v (Map.get-with-default values &k &(Mustache.Str @""))]
           (set! s (Pattern.substitute &e &s &(str &v) 1))))
@@ -58,10 +98,11 @@
   (private replace-normal)
   (hidden replace-normal)
   (defn replace-normal [s values]
-    (let-do [ks (Pattern.global-match #"{{([^}]*)}}" &s)]
+    (let-do [pattern (pat &(format "([^(%s)]*)" &(end values)) values)
+             ks (Pattern.global-match &pattern &s)]
       (for [i 0 (Array.length &ks)]
         (let [m (Array.nth (Array.nth &ks i) 0)
-              e (Pattern.init &(format "{{%s}}" m))
+              e (pat m values)
               k (String.trim m)
               v (Map.get-with-default values &k &(Mustache.Str @""))]
           (set! s (Pattern.substitute &e &s &(escape &(str &v)) 1))))
@@ -70,12 +111,13 @@
   (private replace-section)
   (hidden replace-section)
   (defn replace-section [s values]
-    (let-do [section-starters (Pattern.global-match #"{{#([^}]*)}}" &s)
-             indices (Pattern.find-all #"{{#([^}]*)}}" &s)]
+    (let-do [pattern (pat &(format "#\([^(%s)]*\)" &(end values)) values)
+             section-starters (Pattern.global-match &pattern &s)
+             indices (Pattern.find-all &pattern &s)]
       (for [i 0 (Array.length &section-starters)]
         (let [inside (Array.nth (Array.nth &section-starters i) 0)
               li (+ 5 (length inside))
-              end (Pattern.init &(format "{{/%s}}" inside))
+              end (pat &(format "/%s" inside) values)
               name (String.trim inside)
               v (Map.get-with-default values &name &(Mustache.Str @""))
               from (String.suffix-string &s (+ li @(Array.nth &indices i)))
@@ -98,12 +140,13 @@
   (private replace-inv-section)
   (hidden replace-inv-section)
   (defn replace-inv-section [s values]
-    (let-do [section-starters (Pattern.global-match #"{{\^([^}]*)}}" &s)
-             indices (Pattern.find-all #"{{\^([^}]*)}}" &s)]
+    (let-do [pattern (pat &(format "\\^([^(%s)]*)" &(end values)) values)
+             section-starters (Pattern.global-match &pattern &s)
+             indices (Pattern.find-all &pattern &s)]
       (for [i 0 (Array.length &section-starters)]
         (let [inside (Array.nth (Array.nth &section-starters i) 0)
               li (+ 5 (length inside))
-              end (Pattern.init &(format "{{/%s}}" inside))
+              end (pat &(format "/%s" inside) values)
               name (String.trim inside)
               v (Map.get-with-default values &name &(Mustache.Str @""))
               from (String.suffix-string &s (+ li @(Array.nth &indices i)))
@@ -119,10 +162,11 @@
   (private replace-partial)
   (hidden replace-partial)
   (defn replace-partial [s values]
-    (let-do [ks (Pattern.global-match #"{{>([^}]*)}}" &s)]
+    (let-do [pattern (pat &(format ">([^(%s)]*)" &(end values)) values)
+             ks (Pattern.global-match &pattern &s)]
       (for [i 0 (Array.length &ks)]
         (let [m (Array.nth (Array.nth &ks i) 0)
-              e (Pattern.init &(format "{{>%s}}" m))
+              e (pat &(format ">%s" m) values)
               fname (format "%s.mustache" &(String.trim m))
               contents? (IO.read->EOF &fname)]
           (match contents?
@@ -161,11 +205,15 @@ All escaped names will be trimmed, i.e. `{{ thing }}` will be looked up as
 formatted the same, i.e. `{{/thing}}` is not a section close for `{{^ thing }}`.
 Please be consistent in your formatting.")
   (defn template [s values]
-    (=> @s
-        (replace-comment values)
-        (replace-partial values)
-        (replace-section values)
-        (replace-inv-section values)
-        (replace-unescaped values)
-        (replace-normal values)))
+    (let [v (Map.put
+              (Map.put @values &START-KEY &DFLT-START)
+              &END-KEY &DFLT-END)]
+      (=> @s
+          (replace-comment &v)
+          (replace-delimiter &v)
+          (replace-partial &v)
+          (replace-section &v)
+          (replace-inv-section &v)
+          (replace-unescaped &v)
+          (replace-normal &v))))
 )
