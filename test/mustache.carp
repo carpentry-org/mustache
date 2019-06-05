@@ -75,4 +75,16 @@
                            &{@"thing" (Mustache.Str @"")})
                 "simple inverted sections work IV"
   )
+  (assert-equal test
+                "this is an inverted section  with extras!"
+                &(template
+                  "{{prelude}} {{^ thing }}inverted section{{/ thing }} {{#notthere}} i will vanish{{/notthere}} {{# extra }}with extras{{/ extra }}{{# bang }}!{{# band}}"
+                  &{
+                    @"thing" (Mustache.Str @"")
+                    @"extra" (Mustache.Str @"There")
+                    @"prelude" (Mustache.Str @"this is an")
+                    @"bang" (Mustache.Lambda id)
+                  })
+                "complicated sections work"
+  )
 )
