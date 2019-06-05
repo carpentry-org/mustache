@@ -111,7 +111,7 @@
   (private replace-section)
   (hidden replace-section)
   (defn replace-section [s values]
-    (let-do [pattern (pat &(format "#\([^(%s)]*\)" &(end values)) values)
+    (let-do [pattern (pat &(fmt "#([^(%s)]*)" &(end values)) values)
              section-starters (Pattern.global-match &pattern &s)
              indices (Pattern.find-all &pattern &s)]
       (for [i 0 (Array.length &section-starters)]
