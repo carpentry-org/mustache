@@ -1,0 +1,78 @@
+(load "main.carp")
+(load "Test.carp")
+
+(use-all Mustache Test)
+
+(deftest test
+  (assert-equal test
+                "this is a strawberry"
+                &(template "this is a {{ thing }}"
+                           &{@"thing" (Mustache.Str @"strawberry")})
+                "simple templating works"
+  )
+  (assert-equal test
+                "this is a &lt;strawberry&gt;"
+                &(template "this is a {{ thing }}"
+                           &{@"thing" (Mustache.Str @"<strawberry>")})
+                "simple templating & escaping works"
+  )
+  (assert-equal test
+                "this is a <strawberry>"
+                &(template "this is a {{{ thing }}}"
+                           &{@"thing" (Mustache.Str @"<strawberry>")})
+                "simple templating without escaping works"
+  )
+  (assert-equal test
+                "this is a "
+                &(template "this is a {{{ thing }}}" &{})
+                "simple templating with missing values works"
+  )
+  (assert-equal test
+                "this is a #lambda"
+                &(template "this is a {{{ thing }}}"
+                           &{@"thing" (Mustache.Lambda (fn [x] x))})
+                "simple templating with functions works"
+  )
+  (assert-equal test
+                "this is an explosion!"
+                &(template "this is an explosion{{# thing }}!{{/ thing }}"
+                           &{@"thing" (Mustache.Str @"!")})
+                "simple sections with strings works"
+  )
+  (assert-equal test
+                "this is an "
+                &(template "this is an {{# thing }}explosion!{{/ thing }}"
+                           &{@"thing" (Mustache.Str @"")})
+                "simple sections with empty strings works"
+  )
+  (assert-equal test
+                "this is an explosion!"
+                &(template "this is an {{# thing }}explosion{{/ thing }}"
+                           &{@"thing" (Mustache.Lambda (fn [x] (String.append &x "!")))})
+                "simple sections with functions works"
+  )
+  (assert-equal test
+                "this is an "
+                &(template "this is an {{{^ thing }}}inverted section{{/ thing }}"
+                           &{@"thing" (Mustache.Lambda (fn [x] x))})
+                "simple inverted sections work I"
+  )
+  (assert-equal test
+                "this is an "
+                &(template "this is an {{^ thing }}inverted section{{/ thing }}"
+                           &{@"thing" (Mustache.Str @"there")})
+                "simple inverted sections work II"
+  )
+  (assert-equal test
+                "this is an inverted section"
+                &(template "this is an {{^ thing }}inverted section{{/ thing }}"
+                           &{})
+                "simple inverted sections work III"
+  )
+  (assert-equal test
+                "this is an inverted section"
+                &(template "this is an {{^ thing }}inverted section{{/ thing }}"
+                           &{@"thing" (Mustache.Str @"")})
+                "simple inverted sections work IV"
+  )
+)

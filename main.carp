@@ -1,0 +1,160 @@
+(deftype Mustache
+  (Str [String])
+  ;(Lst [(Array String)]) TODO
+  (Lambda [(Fn [String] String)]))
+
+(defmodule Mustache
+  (hidden copy)
+  (hidden Lambda)
+  (hidden Str)
+
+  (private prn)
+  (hidden prn)
+  (defn prn [m]
+    (match @m
+      (Mustache.Str s) s
+      (Mustache.Lambda _) @"#lambda"))
+
+  (private str)
+  (hidden str)
+  (defn str [m]
+    (match @m
+      (Mustache.Str s) s
+      (Mustache.Lambda _) @"#lambda"))
+
+  (private bool)
+  (hidden bool)
+  (defn bool [m]
+    (match @m
+      (Mustache.Str s) (not (empty? &s))
+      (Mustache.Lambda _) true))
+
+  (private escape)
+  (hidden escape)
+  (defn escape [s]
+    (Pattern.substitute #">"
+      &(Pattern.substitute #"<"
+        &(Pattern.substitute #"&" s "&amp;"  -1)
+       "&lt;" -1)
+    "&gt;" -1)
+  )
+
+  (private replace-comment)
+  (hidden replace-comment)
+  (defn replace-comment [s values] (Pattern.substitute #"{{!.*}}" &s "" -1))
+
+  (private replace-unescaped)
+  (hidden replace-unescaped)
+  (defn replace-unescaped [s values]
+    (let-do [ks (Pattern.global-match #"{{{([^}]*)}}}" &s)]
+      (for [i 0 (Array.length &ks)]
+        (let [m (Array.nth (Array.nth &ks i) 0)
+              e (Pattern.init &(format "{{{%s}}}" m))
+              k (String.trim m)
+              v (Map.get-with-default values &k &(Mustache.Str @""))]
+          (set! s (Pattern.substitute &e &s &(str &v) 1))))
+      s))
+
+  (private replace-normal)
+  (hidden replace-normal)
+  (defn replace-normal [s values]
+    (let-do [ks (Pattern.global-match #"{{([^}]*)}}" &s)]
+      (for [i 0 (Array.length &ks)]
+        (let [m (Array.nth (Array.nth &ks i) 0)
+              e (Pattern.init &(format "{{%s}}" m))
+              k (String.trim m)
+              v (Map.get-with-default values &k &(Mustache.Str @""))]
+          (set! s (Pattern.substitute &e &s &(escape &(str &v)) 1))))
+      s))
+
+  (private replace-section)
+  (hidden replace-section)
+  (defn replace-section [s values]
+    (let-do [section-starters (Pattern.global-match #"{{#([^}]*)}}" &s)
+             indices (Pattern.find-all #"{{#([^}]*)}}" &s)]
+      (for [i 0 (Array.length &section-starters)]
+        (let [inside (Array.nth (Array.nth &section-starters i) 0)
+              li (+ 5 (length inside))
+              end (Pattern.init &(format "{{/%s}}" inside))
+              name (String.trim inside)
+              v (Map.get-with-default values &name &(Mustache.Str @""))
+              from (String.suffix-string &s (+ li @(Array.nth &indices i)))
+              until (Pattern.find &end &from)
+              end-index (+ until (+ @(Array.nth &indices i) li))]
+          (when (/= -1 until)
+            (match v
+              (Mustache.Str v)
+                (set! s (fmt "%s%s%s"
+                  &(String.prefix-string &s @(Array.nth &indices i))
+                  (if (empty? &v) "" &(String.prefix-string &from until))
+                  &(String.suffix-string &s end-index)))
+              (Mustache.Lambda f)
+                (set! s (fmt "%s%s%s"
+                  &(String.prefix-string &s @(Array.nth &indices i))
+                  &(f (String.prefix-string &from until))
+                  &(String.suffix-string &s end-index)))))))
+      s))
+
+  (private replace-inv-section)
+  (hidden replace-inv-section)
+  (defn replace-inv-section [s values]
+    (let-do [section-starters (Pattern.global-match #"{{\^([^}]*)}}" &s)
+             indices (Pattern.find-all #"{{\^([^}]*)}}" &s)]
+      (for [i 0 (Array.length &section-starters)]
+        (let [inside (Array.nth (Array.nth &section-starters i) 0)
+              li (+ 5 (length inside))
+              end (Pattern.init &(format "{{/%s}}" inside))
+              name (String.trim inside)
+              v (Map.get-with-default values &name &(Mustache.Str @""))
+              from (String.suffix-string &s (+ li @(Array.nth &indices i)))
+              until (Pattern.find &end &from)
+              end-index (+ until (+ @(Array.nth &indices i) li))]
+          (when (/= -1 until)
+            (set! s (fmt "%s%s%s"
+                  &(String.prefix-string &s @(Array.nth &indices i))
+                  &(if (bool &v) @"" (String.prefix-string &from until))
+                  &(String.suffix-string &s end-index))))))
+      s))
+
+  (private replace-partial)
+  (hidden replace-partial)
+  (defn replace-partial [s values] s)
+
+  (doc template "templates a [Mustache](https://mustache.github.io/)-formatted
+string `s` using the map `values`.
+
+The map must be from `String` to `Mustache` (can be either `Str` or `Lambda`).
+
+Example call:
+
+```
+(Mustache.template
+  \"this is a super {{ adjective }} library\"
+  {@\"adjective\" (Mustache.Str @\"cool\")}
+)
+```
+
+The `Str` constructor represents a simple string body. It is treated as falsy
+when it is empty, and truthy otherwise.
+
+The `Lambda` constructor represents a function that gets invoked on the string
+body of the section. Check out the section entitled “Lambdas” in the [official
+Mustache documentation](http://mustache.github.io/mustache.5.html). It gets
+always treated as truthy.
+
+The `Lst` constructor is currently missing, because types cannot be recursive.
+Bummer. This will get fixed in a later version of Carp.
+
+All escaped names will be trimmed, i.e. `{{ thing }}` will be looked up as
+`\"thing\"` in the map. Furthermore, opening and closing sections need to be
+formatted the same, i.e. `{{/thing}}` is not a section close for `{{^ thing }}`.
+Please be consistent in your formatting.")
+  (defn template [s values]
+    (=> @s
+        (replace-comment values)
+        (replace-partial values)
+        (replace-section values)
+        (replace-inv-section values)
+        (replace-unescaped values)
+        (replace-normal values)))
+)

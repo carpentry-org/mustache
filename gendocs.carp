@@ -1,0 +1,9 @@
+(load "main.carp")
+
+(Project.config "title" "mustache")
+(Project.config "docs-directory" "./docs/")
+(Project.config "docs-logo" "")
+(Project.config "docs-url" "https://github.com/carpentry-org/mustache")
+(Project.config "docs-styling" "style.css")
+
+(save-docs Mustache)

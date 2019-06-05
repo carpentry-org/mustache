@@ -1,0 +1,73 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="http://github.com/carp-lang/Carp">
+                    <img src="logo.png">
+                </a>
+                <div class="title">
+                    mustache
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="Mustache.html">
+                                Mustache
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <h1>
+                Mustache
+            </h1>
+            <div class="binder">
+                <a class="anchor" href="#template">
+                    <h3 id="template">
+                        template
+                    </h3>
+                </a>
+                <div class="description">
+                    defn
+                </div>
+                <p class="sig">
+                    (λ [&amp;String, (Ref (Map String Mustache))] String)
+                </p>
+                <pre class="args">
+                    (template s values)
+                </pre>
+                <p class="doc">
+                    <p>templates a <a href="https://mustache.github.io/">Mustache</a>-formatted
+string <code>s</code> using the map <code>values</code>.</p>
+<p>The map must be from <code>String</code> to <code>Mustache</code> (can be either <code>Str</code> or <code>Lambda</code>).</p>
+<p>Example call:</p>
+<pre><code>(Mustache.template
+  &quot;this is a super {{ adjective }} library&quot;
+  {@&quot;adjective&quot; (Mustache.Str @&quot;cool&quot;)}
+)
+</code></pre>
+<p>The <code>Str</code> constructor represents a simple string body. It is treated as falsy
+when it is empty, and truthy otherwise.</p>
+<p>The <code>Lambda</code> constructor represents a function that gets invoked on the string
+body of the section. Check out the section entitled “Lambdas” in the <a href="http://mustache.github.io/mustache.5.html">official
+Mustache documentation</a>. It gets
+always treated as truthy.</p>
+<p>The <code>Lst</code> constructor is currently missing, because types cannot be recursive.
+Bummer. This will get fixed in a later version of Carp.</p>
+<p>All escaped names will be trimmed, i.e. <code>{{ thing }}</code> will be looked up as
+<code>&quot;thing&quot;</code> in the map. Furthermore, opening and closing sections need to be
+formatted the same, i.e. <code>{{/thing}}</code> is not a section close for <code>{{^ thing }}</code>.
+Please be consistent in your formatting.</p>
+
+                </p>
+            </div>
+        </div>
+    </body>
+</html>
