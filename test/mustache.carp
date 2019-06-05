@@ -34,6 +34,12 @@
                 "simple templating with functions works"
   )
   (assert-equal test
+                "partial says: 'hi, mustache!\n'"
+                &(template "partial says: '{{> test/file }}'"
+                           &{@"name" (Mustache.Str @"mustache")})
+                "simple templating with partials works"
+  )
+  (assert-equal test
                 "this is an explosion!"
                 &(template "this is an explosion{{# thing }}!{{/ thing }}"
                            &{@"thing" (Mustache.Str @"!")})

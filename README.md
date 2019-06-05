@@ -5,7 +5,7 @@
 ## Installing
 
 ```clojure
-(load "git@github.com:carpentry-org/mustache@0.0.1")
+(load "git@github.com:carpentry-org/mustache@0.0.2")
 ```
 
 ## Usage

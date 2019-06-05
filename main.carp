@@ -118,7 +118,18 @@
 
   (private replace-partial)
   (hidden replace-partial)
-  (defn replace-partial [s values] s)
+  (defn replace-partial [s values]
+    (let-do [ks (Pattern.global-match #"{{>([^}]*)}}" &s)]
+      (for [i 0 (Array.length &ks)]
+        (let [m (Array.nth (Array.nth &ks i) 0)
+              e (Pattern.init &(format "{{>%s}}" m))
+              fname (format "%s.mustache" &(String.trim m))
+              contents? (IO.read->EOF &fname)]
+          (match contents?
+            (Result.Error _) ()
+            (Result.Success contents)
+              (set! s (Pattern.substitute &e &s &contents 1)))))
+      s))
 
   (doc template "templates a [Mustache](https://mustache.github.io/)-formatted
 string `s` using the map `values`.
