@@ -18,7 +18,7 @@ is either a `Str` or a `Lambda`.
 ```clojure
 (Mustache.template
   "this is a super {{ adjective }} library"
-  {@"adjective" (Mustache.Str @"cool")}
+  &{@"adjective" (Mustache.Str @"cool")}
 )
 ```
 
