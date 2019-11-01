@@ -74,8 +74,8 @@
   (defn replace-delimiter [s values]
     (let-do [ks (Pattern.global-match &(pat "=(.*) +(.*)=" values) &s)]
       (for [i 0 (Array.length &ks)]
-        (let-do [start (String.trim (Array.nth (Array.nth &ks i) 0))
-                 end (String.trim (Array.nth (Array.nth &ks i) 0))
+        (let-do [start (String.trim (Array.unsafe-nth (Array.unsafe-nth &ks i) 0))
+                 end (String.trim (Array.unsafe-nth (Array.unsafe-nth &ks i) 0))
                  r (pat "=(.*) +(.*)=" values)]
           (Map.put! values &START-KEY &(Mustache.Str start))
           (Map.put! values &END-KEY &(Mustache.Str end))
@@ -88,7 +88,7 @@
     (let-do [pattern (pat &(format "{([^(%s)]*)}" &(end values)) values)
              ks (Pattern.global-match &pattern &s)]
       (for [i 0 (Array.length &ks)]
-        (let [m (Array.nth (Array.nth &ks i) 0)
+        (let [m (Array.unsafe-nth (Array.unsafe-nth &ks i) 0)
               e (pat &(format "{%s}" m) values)
               k (String.trim m)
               v (Map.get-with-default values &k &(Mustache.Str @""))]
@@ -101,7 +101,7 @@
     (let-do [pattern (pat &(format "([^(%s)]*)" &(end values)) values)
              ks (Pattern.global-match &pattern &s)]
       (for [i 0 (Array.length &ks)]
-        (let [m (Array.nth (Array.nth &ks i) 0)
+        (let [m (Array.unsafe-nth (Array.unsafe-nth &ks i) 0)
               e (pat m values)
               k (String.trim m)
               v (Map.get-with-default values &k &(Mustache.Str @""))]
@@ -115,24 +115,24 @@
              section-starters (Pattern.global-match &pattern &s)
              indices (Pattern.find-all &pattern &s)]
       (for [i 0 (Array.length &section-starters)]
-        (let [inside (Array.nth (Array.nth &section-starters i) 0)
+        (let [inside (Array.unsafe-nth (Array.unsafe-nth &section-starters i) 0)
               li (+ 5 (length inside))
               end (pat &(format "/%s" inside) values)
               name (String.trim inside)
               v (Map.get-with-default values &name &(Mustache.Str @""))
-              from (String.suffix-string &s (+ li @(Array.nth &indices i)))
+              from (String.suffix-string &s (+ li @(Array.unsafe-nth &indices i)))
               until (Pattern.find &end &from)
-              end-index (+ until (+ @(Array.nth &indices i) li))]
+              end-index (+ until (+ @(Array.unsafe-nth &indices i) li))]
           (when (/= -1 until)
             (match v
               (Mustache.Str v)
                 (set! s (fmt "%s%s%s"
-                  &(String.prefix-string &s @(Array.nth &indices i))
+                  &(String.prefix-string &s @(Array.unsafe-nth &indices i))
                   (if (empty? &v) "" &(String.prefix-string &from until))
                   &(String.suffix-string &s end-index)))
               (Mustache.Lambda f)
                 (set! s (fmt "%s%s%s"
-                  &(String.prefix-string &s @(Array.nth &indices i))
+                  &(String.prefix-string &s @(Array.unsafe-nth &indices i))
                   &(f (String.prefix-string &from until))
                   &(String.suffix-string &s end-index)))))))
       s))
@@ -144,17 +144,17 @@
              section-starters (Pattern.global-match &pattern &s)
              indices (Pattern.find-all &pattern &s)]
       (for [i 0 (Array.length &section-starters)]
-        (let [inside (Array.nth (Array.nth &section-starters i) 0)
+        (let [inside (Array.unsafe-nth (Array.unsafe-nth &section-starters i) 0)
               li (+ 5 (length inside))
               end (pat &(format "/%s" inside) values)
               name (String.trim inside)
               v (Map.get-with-default values &name &(Mustache.Str @""))
-              from (String.suffix-string &s (+ li @(Array.nth &indices i)))
+              from (String.suffix-string &s (+ li @(Array.unsafe-nth &indices i)))
               until (Pattern.find &end &from)
-              end-index (+ until (+ @(Array.nth &indices i) li))]
+              end-index (+ until (+ @(Array.unsafe-nth &indices i) li))]
           (when (/= -1 until)
             (set! s (fmt "%s%s%s"
-                  &(String.prefix-string &s @(Array.nth &indices i))
+                  &(String.prefix-string &s @(Array.unsafe-nth &indices i))
                   &(if (bool &v) @"" (String.prefix-string &from until))
                   &(String.suffix-string &s end-index))))))
       s))
@@ -165,7 +165,7 @@
     (let-do [pattern (pat &(format ">([^(%s)]*)" &(end values)) values)
              ks (Pattern.global-match &pattern &s)]
       (for [i 0 (Array.length &ks)]
-        (let [m (Array.nth (Array.nth &ks i) 0)
+        (let [m (Array.unsafe-nth (Array.unsafe-nth &ks i) 0)
               e (pat &(format ">%s" m) values)
               fname (format "%s.mustache" &(String.trim m))
               contents? (IO.read->EOF &fname)]
