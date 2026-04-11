@@ -9,8 +9,8 @@
     <body>
         <div class="content">
             <div class="logo">
-                <a href="http://github.com/carp-lang/Carp">
-                    <img src="logo.png">
+                <a href="https://github.com/carpentry-org/mustache">
+                    <img src="">
                 </a>
                 <div class="title">
                     mustache
@@ -25,48 +25,149 @@
                     </ul>
                 </div>
             </div>
-            <h1>
-                Mustache
-            </h1>
-            <div class="binder">
-                <a class="anchor" href="#template">
-                    <h3 id="template">
-                        template
-                    </h3>
-                </a>
-                <div class="description">
-                    defn
+            <div class="module">
+                <h1>
+                    Mustache
+                </h1>
+                <div class="module-description">
+                    <p>is a full <a href="https://mustache.github.io/">Mustache</a> templating
+implementation for Carp.</p>
+<p>A template is rendered via <code>Mustache.template</code> against a context of type
+<code>(Map String Mustache)</code>. The <code>Mustache</code> sumtype carries the supported value
+kinds: strings, lists, nested maps, and lambdas.</p>
+<pre><code>(Mustache.template
+  &quot;Hello, {{#users}}{{name}} {{/users}}!&quot;
+  &amp;{@&quot;users&quot; (Mustache.Lst [(Box.init (Mustache.Mp {@&quot;name&quot; (Box.init (Mustache.Str @&quot;Ada&quot;))}))
+                              (Box.init (Mustache.Mp {@&quot;name&quot; (Box.init (Mustache.Str @&quot;Grace&quot;))}))])})
+; =&gt; &quot;Hello, Ada Grace !&quot;
+</code></pre>
+<p>Supports comments, section iteration, inverted sections, object contexts,
+partials, and the set-delimiter tag. Templates are parsed into an intermediate
+node tree before rendering, so nested sections work correctly.</p>
+<p>Templates are processed at byte level, which is correct for ASCII and UTF-8
+input as long as the delimiters themselves are ASCII.</p>
+
                 </div>
-                <p class="sig">
-                    (λ [&amp;String, (Ref (Map String Mustache))] String)
-                </p>
-                <pre class="args">
-                    (template s values)
-                </pre>
-                <p class="doc">
-                    <p>templates a <a href="https://mustache.github.io/">Mustache</a>-formatted
+                <div class="binder">
+                    <a class="anchor" href="#Lambda">
+                        <h3 id="Lambda">
+                            Lambda
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Fn [String] String)] Mustache)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Lambda</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Lst">
+                        <h3 id="Lst">
+                            Lst
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Array (Box Mustache))] Mustache)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Lst</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Mp">
+                        <h3 id="Mp">
+                            Mp
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Map String (Box Mustache))] Mustache)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Mp</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Str">
+                        <h3 id="Str">
+                            Str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [String] Mustache)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Str</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#template">
+                        <h3 id="template">
+                            template
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref (Map String Mustache) b)] String)
+                    </p>
+                    <pre class="args">
+                        (template s values)
+                    </pre>
+                    <p class="doc">
+                        <p>templates a <a href="https://mustache.github.io/">Mustache</a>-formatted
 string <code>s</code> using the map <code>values</code>.</p>
-<p>The map must be from <code>String</code> to <code>Mustache</code> (can be either <code>Str</code> or <code>Lambda</code>).</p>
-<p>Example call:</p>
+<p>The map must be from <code>String</code> to <code>Mustache</code>. Values can be:</p>
+<ul>
+<li><code>Str</code> — a plain string. Empty strings are falsy for section purposes.</li>
+<li><code>Lst</code> — an array of boxed <code>Mustache</code> values. Empty arrays are falsy;
+non-empty arrays cause sections to iterate once per item. Inside a list
+section, bare items are bound as <code>{{.}}</code> and <code>Mp</code> items provide nested
+object contexts.</li>
+<li><code>Mp</code> — a nested map of boxed <code>Mustache</code> values. Used as a section value,
+it pushes its entries onto the context for the section body.</li>
+<li><code>Lambda</code> — a function applied to the raw section body.</li>
+</ul>
+<p>Example:</p>
 <pre><code>(Mustache.template
   &quot;this is a super {{ adjective }} library&quot;
-  &amp;{@&quot;adjective&quot; (Mustache.Str @&quot;cool&quot;)}
-)
+  &amp;{@&quot;adjective&quot; (Mustache.Str @&quot;cool&quot;)})
 </code></pre>
-<p>The <code>Str</code> constructor represents a simple string body. It is treated as falsy
-when it is empty, and truthy otherwise.</p>
-<p>The <code>Lambda</code> constructor represents a function that gets invoked on the string
-body of the section. Check out the section entitled “Lambdas” in the <a href="http://mustache.github.io/mustache.5.html">official
-Mustache documentation</a>. It gets
-always treated as truthy.</p>
-<p>The <code>Lst</code> constructor is currently missing, because types cannot be recursive.
-Bummer. This will get fixed in a later version of Carp.</p>
-<p>All escaped names will be trimmed, i.e. <code>{{ thing }}</code> will be looked up as
-<code>&quot;thing&quot;</code> in the map. Furthermore, opening and closing sections need to be
-formatted the same, i.e. <code>{{/thing}}</code> is not a section close for <code>{{^ thing }}</code>.
-Please be consistent in your formatting.</p>
+<p>Trimming: names inside mustache tags are trimmed, so <code>{{ thing }}</code> looks up
+<code>&quot;thing&quot;</code>. Opening and closing section markers must use consistent names,
+i.e. <code>{{/thing}}</code> is not a close for <code>{{^ thing }}</code>.</p>
 
-                </p>
+                    </p>
+                </div>
             </div>
         </div>
     </body>

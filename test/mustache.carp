@@ -100,4 +100,115 @@
                   &{@"switched" (Mustache.Str @"with switched")})
                 "switching tags works"
   )
+  (assert-equal test
+                "a b c "
+                &(template
+                  "{{#items}}{{.}} {{/items}}"
+                  &{@"items" (Mustache.Lst [(Box.init (Mustache.Str @"a"))
+                                            (Box.init (Mustache.Str @"b"))
+                                            (Box.init (Mustache.Str @"c"))])})
+                "list iteration with dot"
+  )
+  (assert-equal test
+                "(empty)"
+                &(template
+                  "{{#items}}x{{/items}}{{^items}}(empty){{/items}}"
+                  &{@"items" (Mustache.Lst [])})
+                "empty list is falsy"
+  )
+  (assert-equal test
+                "Ada Grace "
+                &(template
+                  "{{#users}}{{name}} {{/users}}"
+                  &{@"users" (Mustache.Lst
+                              [(Box.init (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))}))
+                               (Box.init (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Grace"))}))])})
+                "list of object contexts"
+  )
+  (assert-equal test
+                "Carp is typed"
+                &(template
+                  "{{#lang}}{{name}} is {{kind}}{{/lang}}"
+                  &{@"lang" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Carp"))
+                                          @"kind" (Box.init (Mustache.Str @"typed"))})})
+                "map as section context"
+  )
+  (assert-equal test
+                "outer-value"
+                &(template
+                  "{{#inner}}{{outer}}{{/inner}}"
+                  &{@"outer" (Mustache.Str @"outer-value")
+                    @"inner" (Mustache.Mp {})})
+                "inner map falls through to outer context"
+  )
+  (assert-equal test
+                "x=12 y=34 "
+                &(template
+                  "{{#outer}}{{name}}={{#nums}}{{.}}{{/nums}} {{/outer}}"
+                  &{@"outer" (Mustache.Lst
+                              [(Box.init (Mustache.Mp
+                                {@"name" (Box.init (Mustache.Str @"x"))
+                                 @"nums" (Box.init (Mustache.Lst
+                                          [(Box.init (Mustache.Str @"1"))
+                                           (Box.init (Mustache.Str @"2"))]))}))
+                               (Box.init (Mustache.Mp
+                                {@"name" (Box.init (Mustache.Str @"y"))
+                                 @"nums" (Box.init (Mustache.Lst
+                                          [(Box.init (Mustache.Str @"3"))
+                                           (Box.init (Mustache.Str @"4"))]))}))])})
+                "nested list-in-map-in-list"
+  )
+  (assert-equal test
+                "[inherited]"
+                &(template
+                  "{{#wrap}}[{{prelude}}]{{/wrap}}"
+                  &{@"wrap" (Mustache.Mp {})
+                    @"prelude" (Mustache.Str @"inherited")})
+                "outer context inherited through map section"
+  )
+  (assert-equal test
+                "hello world"
+                &(template "hello {{! this is a comment }}world" &{})
+                "comments are stripped"
+  )
+  (assert-equal test
+                "<strawberry>"
+                &(template "{{& thing }}"
+                           &{@"thing" (Mustache.Str @"<strawberry>")})
+                "explicit raw var with ampersand syntax"
+  )
+  (assert-equal test
+                "[]"
+                &(template "[{{> no_such_file }}]" &{})
+                "missing partial renders as empty"
+  )
+  (assert-equal test
+                "xy"
+                &(template "{{#foo}}x{{/bar}}y{{/foo}}"
+                           &{@"foo" (Mustache.Str @"present")})
+                "mismatched close tag inside section is ignored"
+  )
+  (assert-equal test
+                ""
+                &(template "" &{})
+                "empty template renders as empty"
+  )
+  (assert-equal test
+                ""
+                &(template "{{missing}}" &{})
+                "missing var renders as empty"
+  )
+  (assert-equal test
+                "hi"
+                &(template "{{=foo=}}hi" &{})
+                "malformed set-delimiter is consumed without crashing"
+  )
+  (assert-equal test
+                "#lambda#lambda"
+                &(template "{{#fs}}{{.}}{{/fs}}"
+                           &{@"fs" (Mustache.Lst
+                                    [(Box.init (Mustache.Lambda (fn [x] x)))
+                                     (Box.init (Mustache.Lambda (fn [x] x)))])})
+                "list of lambdas stringifies each as #lambda"
+  )
 )

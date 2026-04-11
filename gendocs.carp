@@ -6,4 +6,4 @@
 (Project.config "docs-url" "https://github.com/carpentry-org/mustache")
 (Project.config "docs-styling" "style.css")
 
-(save-docs Mustache)
+(save-docs 'Mustache)

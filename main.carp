@@ -1,219 +1,452 @@
+(doc Mustache "is a full [Mustache](https://mustache.github.io/) templating
+implementation for Carp.
+
+A template is rendered via `Mustache.template` against a context of type
+`(Map String Mustache)`. The `Mustache` sumtype carries the supported value
+kinds: strings, lists, nested maps, and lambdas.
+
+```
+(Mustache.template
+  \"Hello, {{#users}}{{name}} {{/users}}!\"
+  &{@\"users\" (Mustache.Lst [(Box.init (Mustache.Mp {@\"name\" (Box.init (Mustache.Str @\"Ada\"))}))
+                              (Box.init (Mustache.Mp {@\"name\" (Box.init (Mustache.Str @\"Grace\"))}))])})
+; => \"Hello, Ada Grace !\"
+```
+
+Supports comments, section iteration, inverted sections, object contexts,
+partials, and the set-delimiter tag. Templates are parsed into an intermediate
+node tree before rendering, so nested sections work correctly.
+
+Templates are processed at byte level, which is correct for ASCII and UTF-8
+input as long as the delimiters themselves are ASCII.")
 (deftype Mustache
   (Str [String])
-  ;(Lst [(Array String)]) TODO
+  (Lst [(Array (Box Mustache))])
+  (Mp [(Map String (Box Mustache))])
   (Lambda [(Fn [String] String)]))
 
-; TODO reduce duplication
+; Internal parse tree. `NSect` stores both the raw body text (needed to pass
+; to lambdas per the mustache spec) and the parsed body.
+(hidden Node)
+(deftype Node
+  (NLit [String])
+  (NVar [String])
+  (NRaw [String])
+  (NSect [String String (Array (Box Node))])
+  (NInv [String (Array (Box Node))])
+  (NPart [String]))
+
 (defmodule Mustache
   (hidden copy)
-  (hidden Lambda)
-  (hidden Str)
-
-  (hidden START-KEY)
-  (def START-KEY @"*mustache-start*")
-  (hidden END-KEY)
-  (def END-KEY @"*mustache-end*")
-  (hidden DFLT-START)
-  (def DFLT-START (Mustache.Str @"{{"))
-  (hidden DFLT-END)
-  (def DFLT-END (Mustache.Str @"}}"))
-
-  (private prn)
+  (hidden delete)
+  (hidden get-tag)
   (hidden prn)
-  (defn prn [m]
-    (match @m
-      (Mustache.Str s) s
-      (Mustache.Lambda _) @"#lambda"))
-
-  (private str)
   (hidden str)
-  (defn str [m]
-    (match @m
-      (Mustache.Str s) s
-      (Mustache.Lambda _) @"#lambda"))
 
-  (private bool)
-  (hidden bool)
-  (defn bool [m]
-    (match @m
-      (Mustache.Str s) (not (empty? &s))
-      (Mustache.Lambda _) true))
+  ; =========================================================================
+  ; Byte-level string helpers
+  ; =========================================================================
 
+  (private byte-slice)
+  (hidden byte-slice)
+  (defn byte-slice [s a b]
+    (let-do [len (- b a)
+             bytes (the (Array Byte) (Array.allocate len))]
+      (for [i 0 len]
+        (Array.aset-uninitialized! &bytes i (Char.to-byte (String.char-at s (+ a i)))))
+      (String.from-bytes &bytes)))
+
+  (private ws?)
+  (hidden ws?)
+  (defn ws? [ch]
+    (or (= \space ch) (= \tab ch) (= \newline ch) (= \return ch)))
+
+  ; Trim ASCII whitespace from both ends. `String.trim` in stdlib goes
+  ; through two `Pattern.substitute` calls, allocating even when the input
+  ; has no whitespace to trim — the common case for mustache tag names.
+  (private fast-trim)
+  (hidden fast-trim)
+  (defn fast-trim [s]
+    (let-do [slen (String.length s)
+             a 0
+             b slen]
+      (while-do (and (< a b) (ws? (String.char-at s a)))
+        (set! a (Int.inc a)))
+      (while-do (and (< a b) (ws? (String.char-at s (Int.dec b))))
+        (set! b (Int.dec b)))
+      (if (and (= a 0) (= b slen))
+        @s
+        (byte-slice s a b))))
+
+  ; Find the next occurrence of `needle` in `s` starting at byte offset
+  ; `from`. Hand-rolled byte scan: `String.char-at` is a single-byte read in
+  ; C, cheaper than `Pattern.match-from`'s interpreted matcher for literal
+  ; needles like `{{` / `}}`. Caller passes pre-computed `slen`, `nlen`,
+  ; and `first-char` so we don't pay a fresh strlen per call.
+  (private find-str-from)
+  (hidden find-str-from)
+  (defn find-str-from [s needle from slen nlen first-char]
+    (let-do [last (- slen nlen)
+             i from
+             found -1]
+      (while-do (and (= found -1) (<= i last))
+        (if (= first-char (String.char-at s i))
+          (let-do [ok true
+                   k 1]
+            (while-do (and ok (< k nlen))
+              (when (/= (String.char-at needle k) (String.char-at s (+ i k)))
+                (set! ok false))
+              (set! k (Int.inc k)))
+            (if ok
+              (set! found i)
+              (set! i (Int.inc i))))
+          (set! i (Int.inc i))))
+      found))
+
+  ; =========================================================================
+  ; HTML escape
+  ; =========================================================================
+
+  ; HTML-escape with a fast path: if there are no metacharacters, just copy
+  ; the string. The slow path runs three Pattern.substitute calls, each of
+  ; which allocates a new String — avoid triple allocation on the common case.
   (private escape)
   (hidden escape)
   (defn escape [s]
-    (Pattern.substitute #">"
-      &(Pattern.substitute #"<"
-        &(Pattern.substitute #"&" s "&amp;"  -1)
-       "&lt;" -1)
-    "&gt;" -1)
-  )
+    (if (and (= -1 (String.index-of s \&))
+             (and (= -1 (String.index-of s \<))
+                  (= -1 (String.index-of s \>))))
+      @s
+      (Pattern.substitute #">"
+        &(Pattern.substitute #"<"
+          &(Pattern.substitute #"&" s "&amp;"  -1)
+         "&lt;" -1)
+      "&gt;" -1)))
 
-  (private start)
-  (hidden start)
-  (defn start [m]
-    (str &(Map.get-with-default m &START-KEY &(Mustache.Str @""))))
+  ; =========================================================================
+  ; Mustache value helpers
+  ; =========================================================================
 
-  (private end)
-  (hidden end)
-  (defn end [m]
-    (str &(Map.get-with-default m &END-KEY &(Mustache.Str @""))))
+  (private to-str)
+  (hidden to-str)
+  (defn to-str [m]
+    (match-ref m
+      (Mustache.Str s) @s
+      (Mustache.Lambda _) @"#lambda"
+      (Mustache.Lst _) @""
+      (Mustache.Mp _) @""))
 
-  (private pat)
-  (hidden pat)
-  (defn pat [s m]
-    (Pattern.init &(fmt "%s%s%s" &(start m) s &(end m))))
+  ; Per the mustache spec, empty strings and empty lists are falsy;
+  ; maps and lambdas are always truthy (empty maps still render sections
+  ; once, with the empty map on top of the context stack).
+  (private falsy?)
+  (hidden falsy?)
+  (defn falsy? [m]
+    (match-ref m
+      (Mustache.Str s) (String.empty? s)
+      (Mustache.Lst xs) (Array.empty? xs)
+      (Mustache.Mp _) false
+      (Mustache.Lambda _) false))
 
-  (private replace-comment)
-  (hidden replace-comment)
-  (defn replace-comment [s values]
-    (Pattern.substitute &(pat "!.*" values) &s "" -1))
+  ; Walk the frame stack from top (newest) to bottom, falling through to
+  ; user-ctx if the name isn't bound in any frame. This avoids ever copying
+  ; user-ctx during rendering — only the tiny section frames get copied
+  ; when a new frame is pushed.
+  (private lookup-val)
+  (hidden lookup-val)
+  (defn lookup-val [user-ctx frames name]
+    (let-do [i (Int.dec (Array.length frames))
+             found (the (Maybe Mustache) (Maybe.Nothing))]
+      (while-do (and (>= i 0) (Maybe.nothing? &found))
+        (set! found (Map.get-maybe (Array.unsafe-nth frames i) name))
+        (set! i (Int.dec i)))
+      (match found
+        (Maybe.Just v) v
+        (Maybe.Nothing)
+          (let [dflt (Mustache.Str @"")]
+            (Map.get-with-default user-ctx name &dflt)))))
 
-  (private replace-delimiter)
-  (hidden replace-delimiter)
-  (defn replace-delimiter [s values]
-    (let-do [ks (Pattern.global-match &(pat "=(.*) +(.*)=" values) &s)]
-      (for [i 0 (Array.length &ks)]
-        (let-do [start (String.trim (Array.unsafe-nth (Array.unsafe-nth &ks i) 0))
-                 end (String.trim (Array.unsafe-nth (Array.unsafe-nth &ks i) 0))
-                 r (pat "=(.*) +(.*)=" values)]
-          (Map.put! values &START-KEY &(Mustache.Str start))
-          (Map.put! values &END-KEY &(Mustache.Str end))
-          (set! s (Pattern.substitute &r &s "" 1))))
-      s))
+  ; Turn an Mp's inner Map (String -> Box Mustache) into a frame-shaped
+  ; Map (String -> Mustache) by unboxing each value.
+  (private frame-from-mp)
+  (hidden frame-from-mp)
+  (defn frame-from-mp [inner-mp]
+    (Map.kv-reduce
+      &(fn [acc k v]
+        (let [inner @(Box.peek v)]
+          (Map.put acc k &inner)))
+      (the (Map String Mustache) {})
+      inner-mp))
 
-  (private replace-unescaped)
-  (hidden replace-unescaped)
-  (defn replace-unescaped [s values]
-    (let-do [pattern (pat &(format "{([^(%s)]*)}" &(end values)) values)
-             ks (Pattern.global-match &pattern &s)]
-      (for [i 0 (Array.length &ks)]
-        (let [m (Array.unsafe-nth (Array.unsafe-nth &ks i) 0)
-              e (pat &(format "{%s}" m) values)
-              k (String.trim m)
-              v (Map.get-with-default values &k &(Mustache.Str @""))]
-          (set! s (Pattern.substitute &e &s &(str &v) 1))))
-      s))
+  ; =========================================================================
+  ; Parser
+  ; =========================================================================
 
-  (private replace-normal)
-  (hidden replace-normal)
-  (defn replace-normal [s values]
-    (let-do [pattern (pat &(format "([^(%s)]*)" &(end values)) values)
-             ks (Pattern.global-match &pattern &s)]
-      (for [i 0 (Array.length &ks)]
-        (let [m (Array.unsafe-nth (Array.unsafe-nth &ks i) 0)
-              e (pat m values)
-              k (String.trim m)
-              v (Map.get-with-default values &k &(Mustache.Str @""))]
-          (set! s (Pattern.substitute &e &s &(escape &(str &v)) 1))))
-      s))
+  ; parse-body returns (Pair nodes (Pair body-end after-tag))
+  ; where body-end is the offset of the matching close tag's start
+  ; and after-tag is the offset after the close tag. For top-level parses
+  ; (section-name = Nothing), both equal the string length.
+  (private parse-body)
+  (hidden parse-body)
+  (sig parse-body (Fn [(Ref String) Int (Ref String) (Ref String) (Ref (Maybe String))]
+                      (Pair (Array (Box Node)) (Pair Int Int))))
+  (defn parse-body [s pos open close section-name]
+    (let-do [nodes (the (Array (Box Node)) [])
+             o @open
+             c @close
+             o-len (String.length open)
+             c-len (String.length close)
+             o-first (String.char-at open 0)
+             c-first (String.char-at close 0)
+             p pos
+             slen (String.length s)
+             body-end slen
+             after-end slen
+             done false]
+      (while-do (not done)
+        (if (>= p slen)
+          (do
+            (set! body-end slen)
+            (set! after-end slen)
+            (set! done true))
+          (let [next-open (find-str-from s &o p slen o-len o-first)]
+            (if (= next-open -1)
+              (do
+                (when (< p slen)
+                  (set! nodes (Array.push-back nodes (Box.init (Node.NLit (byte-slice s p slen))))))
+                (set! body-end slen)
+                (set! after-end slen)
+                (set! done true))
+              (do
+                (when (> next-open p)
+                  (set! nodes (Array.push-back nodes (Box.init (Node.NLit (byte-slice s p next-open))))))
+                (let-do [tag-start (+ next-open o-len)
+                         raw-mode false
+                         effective-start tag-start]
+                  ; handle triple-mustache prefix
+                  (when (and (< tag-start slen)
+                             (= \{ (String.char-at s tag-start)))
+                    (do
+                      (set! raw-mode true)
+                      (set! effective-start (Int.inc tag-start))))
+                  (let [next-close (find-str-from s &c effective-start slen c-len c-first)]
+                    (if (= next-close -1)
+                      (do
+                        (set! nodes (Array.push-back nodes (Box.init (Node.NLit (byte-slice s next-open slen)))))
+                        (set! body-end slen)
+                        (set! after-end slen)
+                        (set! done true))
+                      (let-do [raw-tag (byte-slice s effective-start next-close)
+                               after-tag (+ next-close c-len)]
+                        ; for raw-mode, skip the extra trailing `}`
+                        (when (and raw-mode
+                                   (< after-tag slen)
+                                   (= \} (String.char-at s after-tag)))
+                          (set! after-tag (Int.inc after-tag)))
+                        (let [tag (fast-trim &raw-tag)]
+                          (cond
+                            ; comment: {{! ... }}
+                            (String.starts-with? &tag "!")
+                              (set! p after-tag)
+                            ; set delimiter: {{=NEW-OPEN NEW-CLOSE=}}
+                            (and (String.starts-with? &tag "=")
+                                 (String.ends-with? &tag "="))
+                              (let-do [inner-len (Int.dec (String.length &tag))
+                                       inner (fast-trim &(byte-slice &tag 1 inner-len))
+                                       space-idx (String.index-of &inner \space)]
+                                (when (>= space-idx 0)
+                                  (let-do [new-o (fast-trim &(byte-slice &inner 0 space-idx))
+                                           new-c (fast-trim &(byte-slice &inner (Int.inc space-idx) (String.length &inner)))]
+                                    (set! o-len (String.length &new-o))
+                                    (set! c-len (String.length &new-c))
+                                    (set! o-first (String.char-at &new-o 0))
+                                    (set! c-first (String.char-at &new-c 0))
+                                    (set! o new-o)
+                                    (set! c new-c)))
+                                (set! p after-tag))
+                            ; partial: {{> name }}
+                            (String.starts-with? &tag ">")
+                              (let-do [name (fast-trim &(byte-slice &tag 1 (String.length &tag)))]
+                                (set! nodes (Array.push-back nodes (Box.init (Node.NPart name))))
+                                (set! p after-tag))
+                            ; section open: {{# name }}
+                            (String.starts-with? &tag "#")
+                              (let-do [name (fast-trim &(byte-slice &tag 1 (String.length &tag)))
+                                       child (parse-body s after-tag &o &c &(Maybe.Just @&name))
+                                       child-nodes @(Pair.a &child)
+                                       ends (Pair.b &child)]
+                                (if (= @(Pair.a ends) slen)
+                                  ; unterminated: inline children, drop section wrapper
+                                  (do
+                                    (for [i 0 (Array.length &child-nodes)]
+                                      (set! nodes (Array.push-back nodes @(Array.unsafe-nth &child-nodes i))))
+                                    (set! p @(Pair.b ends)))
+                                  (let-do [raw-body (byte-slice s after-tag @(Pair.a ends))]
+                                    (set! nodes (Array.push-back nodes (Box.init (Node.NSect @&name raw-body child-nodes))))
+                                    (set! p @(Pair.b ends)))))
+                            ; inverted section: {{^ name }}
+                            (String.starts-with? &tag "^")
+                              (let-do [name (fast-trim &(byte-slice &tag 1 (String.length &tag)))
+                                       child (parse-body s after-tag &o &c &(Maybe.Just @&name))
+                                       child-nodes @(Pair.a &child)
+                                       ends (Pair.b &child)]
+                                (if (= @(Pair.a ends) slen)
+                                  (do
+                                    (for [i 0 (Array.length &child-nodes)]
+                                      (set! nodes (Array.push-back nodes @(Array.unsafe-nth &child-nodes i))))
+                                    (set! p @(Pair.b ends)))
+                                  (do
+                                    (set! nodes (Array.push-back nodes (Box.init (Node.NInv @&name child-nodes))))
+                                    (set! p @(Pair.b ends)))))
+                            ; section close: {{/ name }}
+                            (String.starts-with? &tag "/")
+                              (let [name (fast-trim &(byte-slice &tag 1 (String.length &tag)))]
+                                (match-ref section-name
+                                  (Maybe.Just expected)
+                                    (if (String.= &name expected)
+                                      (do
+                                        (set! body-end next-open)
+                                        (set! after-end after-tag)
+                                        (set! done true))
+                                      (set! p after-tag))
+                                  (Maybe.Nothing)
+                                    (set! p after-tag)))
+                            ; explicit raw var: {{& name }}
+                            (String.starts-with? &tag "&")
+                              (let-do [name (fast-trim &(byte-slice &tag 1 (String.length &tag)))]
+                                (set! nodes (Array.push-back nodes (Box.init (Node.NRaw name))))
+                                (set! p after-tag))
+                            ; normal var (raw or escaped depending on raw-mode)
+                            (do
+                              (if raw-mode
+                                (set! nodes (Array.push-back nodes (Box.init (Node.NRaw @&tag))))
+                                (set! nodes (Array.push-back nodes (Box.init (Node.NVar @&tag)))))
+                              (set! p after-tag)))))))))))))
+      (Pair.init nodes (Pair.init body-end after-end))))
 
-  (private replace-section)
-  (hidden replace-section)
-  (defn replace-section [s values]
-    (let-do [pattern (pat &(fmt "#([^(%s)]*)" &(end values)) values)
-             section-starters (Pattern.global-match &pattern &s)
-             indices (Pattern.find-all &pattern &s)]
-      (for [i 0 (Array.length &section-starters)]
-        (let [inside (Array.unsafe-nth (Array.unsafe-nth &section-starters i) 0)
-              li (+ 5 (length inside))
-              end (pat &(format "/%s" inside) values)
-              name (String.trim inside)
-              v (Map.get-with-default values &name &(Mustache.Str @""))
-              from (String.suffix-string &s (+ li @(Array.unsafe-nth &indices i)))
-              until (Pattern.find &end &from)
-              end-index (+ until (+ @(Array.unsafe-nth &indices i) li))]
-          (when (/= -1 until)
-            (match v
-              (Mustache.Str v)
-                (set! s (fmt "%s%s%s"
-                  &(String.prefix-string &s @(Array.unsafe-nth &indices i))
-                  (if (empty? &v) "" &(String.prefix-string &from until))
-                  &(String.suffix-string &s end-index)))
-              (Mustache.Lambda f)
-                (set! s (fmt "%s%s%s"
-                  &(String.prefix-string &s @(Array.unsafe-nth &indices i))
-                  &(f (String.prefix-string &from until))
-                  &(String.suffix-string &s end-index)))))))
-      s))
+  (private parse)
+  (hidden parse)
+  (defn parse [s]
+    (let [none (the (Maybe String) (Maybe.Nothing))
+          r (parse-body s 0 "{{" "}}" &none)]
+      @(Pair.a &r)))
 
-  (private replace-inv-section)
-  (hidden replace-inv-section)
-  (defn replace-inv-section [s values]
-    (let-do [pattern (pat &(format "\\^([^(%s)]*)" &(end values)) values)
-             section-starters (Pattern.global-match &pattern &s)
-             indices (Pattern.find-all &pattern &s)]
-      (for [i 0 (Array.length &section-starters)]
-        (let [inside (Array.unsafe-nth (Array.unsafe-nth &section-starters i) 0)
-              li (+ 5 (length inside))
-              end (pat &(format "/%s" inside) values)
-              name (String.trim inside)
-              v (Map.get-with-default values &name &(Mustache.Str @""))
-              from (String.suffix-string &s (+ li @(Array.unsafe-nth &indices i)))
-              until (Pattern.find &end &from)
-              end-index (+ until (+ @(Array.unsafe-nth &indices i) li))]
-          (when (/= -1 until)
-            (set! s (fmt "%s%s%s"
-                  &(String.prefix-string &s @(Array.unsafe-nth &indices i))
-                  &(if (bool &v) @"" (String.prefix-string &from until))
-                  &(String.suffix-string &s end-index))))))
-      s))
+  ; =========================================================================
+  ; Renderer
+  ; =========================================================================
 
-  (private replace-partial)
-  (hidden replace-partial)
-  (defn replace-partial [s values]
-    (let-do [pattern (pat &(format ">([^(%s)]*)" &(end values)) values)
-             ks (Pattern.global-match &pattern &s)]
-      (for [i 0 (Array.length &ks)]
-        (let [m (Array.unsafe-nth (Array.unsafe-nth &ks i) 0)
-              e (pat &(format ">%s" m) values)
-              fname (format "%s.mustache" &(String.trim m))
-              contents? (IO.read->EOF &fname)]
+  (private render-nodes)
+  (hidden render-nodes)
+  (private render-node)
+  (hidden render-node)
+  (private render-section)
+  (hidden render-section)
+  (sig render-nodes (Fn [(Ref (Array (Box Node)))
+                         (Ref (Map String Mustache))
+                         (Ref (Array (Map String Mustache)))]
+                        String))
+  (sig render-node (Fn [(Ref Node)
+                        (Ref (Map String Mustache))
+                        (Ref (Array (Map String Mustache)))]
+                       String))
+  (sig render-section (Fn [(Ref Mustache)
+                           (Ref (Array (Box Node)))
+                           (Ref String)
+                           (Ref (Map String Mustache))
+                           (Ref (Array (Map String Mustache)))]
+                          String))
+
+  (defn render-nodes [nodes user-ctx frames]
+    (let-do [result @""]
+      (for [i 0 (Array.length nodes)]
+        (let [n (Box.peek (Array.unsafe-nth nodes i))]
+          (set! result (String.append &result &(render-node n user-ctx frames)))))
+      result))
+
+  (defn render-node [n user-ctx frames]
+    (match-ref n
+      (Node.NLit s) @s
+      (Node.NVar name)
+        (let [v (lookup-val user-ctx frames name)]
+          (escape &(to-str &v)))
+      (Node.NRaw name)
+        (let [v (lookup-val user-ctx frames name)]
+          (to-str &v))
+      (Node.NSect name raw-body body)
+        (let [v (lookup-val user-ctx frames name)]
+          (render-section &v body raw-body user-ctx frames))
+      (Node.NInv name body)
+        (let [v (lookup-val user-ctx frames name)]
+          (if (falsy? &v) (render-nodes body user-ctx frames) @""))
+      (Node.NPart name)
+        (let [fname (format "%s.mustache" name)
+              contents? (IO.read-file &fname)]
           (match contents?
-            (Result.Error _) ()
+            (Result.Error _) @""
             (Result.Success contents)
-              (set! s (Pattern.substitute &e &s &contents 1)))))
-      s))
+              (let [sub-nodes (parse &contents)]
+                (render-nodes &sub-nodes user-ctx frames))))))
+
+  (defn render-section [v body raw-body user-ctx frames]
+    (match-ref v
+      (Mustache.Str s)
+        (if (String.empty? s) @"" (render-nodes body user-ctx frames))
+      (Mustache.Lambda f)
+        (~f @raw-body)
+      (Mustache.Mp m)
+        (let-do [_ (Array.push-back! frames (frame-from-mp m))
+                 out (render-nodes body user-ctx frames)]
+          (ignore (Array.pop-back! frames))
+          out)
+      (Mustache.Lst items)
+        (let-do [out @""]
+          (for [i 0 (Array.length items)]
+            (let [item (Box.peek (Array.unsafe-nth items i))]
+              (match-ref item
+                (Mustache.Mp m)
+                  (do
+                    (Array.push-back! frames (frame-from-mp m))
+                    (set! out (String.append &out &(render-nodes body user-ctx frames)))
+                    (ignore (Array.pop-back! frames)))
+                _
+                  (let-do [empty-f (the (Map String Mustache) {})
+                           dot-frame (Map.put empty-f "." item)]
+                    (Array.push-back! frames dot-frame)
+                    (set! out (String.append &out &(render-nodes body user-ctx frames)))
+                    (ignore (Array.pop-back! frames))))))
+          out)))
+
+  ; =========================================================================
+  ; Public API
+  ; =========================================================================
 
   (doc template "templates a [Mustache](https://mustache.github.io/)-formatted
 string `s` using the map `values`.
 
-The map must be from `String` to `Mustache` (can be either `Str` or `Lambda`).
+The map must be from `String` to `Mustache`. Values can be:
 
-Example call:
+- `Str` — a plain string. Empty strings are falsy for section purposes.
+- `Lst` — an array of boxed `Mustache` values. Empty arrays are falsy;
+  non-empty arrays cause sections to iterate once per item. Inside a list
+  section, bare items are bound as `{{.}}` and `Mp` items provide nested
+  object contexts.
+- `Mp` — a nested map of boxed `Mustache` values. Used as a section value,
+  it pushes its entries onto the context for the section body.
+- `Lambda` — a function applied to the raw section body.
+
+Example:
 
 ```
 (Mustache.template
   \"this is a super {{ adjective }} library\"
-  &{@\"adjective\" (Mustache.Str @\"cool\")}
-)
+  &{@\"adjective\" (Mustache.Str @\"cool\")})
 ```
 
-The `Str` constructor represents a simple string body. It is treated as falsy
-when it is empty, and truthy otherwise.
-
-The `Lambda` constructor represents a function that gets invoked on the string
-body of the section. Check out the section entitled “Lambdas” in the [official
-Mustache documentation](http://mustache.github.io/mustache.5.html). It gets
-always treated as truthy.
-
-The `Lst` constructor is currently missing, because types cannot be recursive.
-Bummer. This will get fixed in a later version of Carp.
-
-All escaped names will be trimmed, i.e. `{{ thing }}` will be looked up as
-`\"thing\"` in the map. Furthermore, opening and closing sections need to be
-formatted the same, i.e. `{{/thing}}` is not a section close for `{{^ thing }}`.
-Please be consistent in your formatting.")
+Trimming: names inside mustache tags are trimmed, so `{{ thing }}` looks up
+`\"thing\"`. Opening and closing section markers must use consistent names,
+i.e. `{{/thing}}` is not a close for `{{^ thing }}`.")
   (defn template [s values]
-    (let [v (Map.put
-              (Map.put @values &START-KEY &DFLT-START)
-              &END-KEY &DFLT-END)]
-      (=> @s
-          (replace-comment &v)
-          (replace-delimiter &v)
-          (replace-partial &v)
-          (replace-section &v)
-          (replace-inv-section &v)
-          (replace-unescaped &v)
-          (replace-normal &v))))
+    (let-do [nodes (parse s)
+             frames (the (Array (Map String Mustache)) [])]
+      (render-nodes &nodes values &frames)))
 )
