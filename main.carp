@@ -54,8 +54,8 @@ input as long as the delimiters themselves are ASCII.")
              bytes (the (Array Byte) (Array.allocate len))]
       (for [i 0 len]
         (Array.aset-uninitialized! &bytes
-          i
-          (Char.to-byte (String.char-at s (+ a i)))))
+                                   i
+                                   (Char.to-byte (String.char-at s (+ a i)))))
       (String.from-bytes &bytes)))
 
   (private ws?)
@@ -113,12 +113,15 @@ input as long as the delimiters themselves are ASCII.")
              (and (= -1 (String.index-of s \<)) (= -1 (String.index-of s \>))))
       @s
       (Pattern.substitute #">"
-        &(Pattern.substitute #"<"
-          &(Pattern.substitute #"&" s "&amp;" -1)
-          "&lt;"
-          -1)
-        "&gt;"
-        -1)))
+                          &(Pattern.substitute #"<"
+                                               &(Pattern.substitute #"&"
+                                                                    s
+                                                                    "&amp;"
+                                                                    -1)
+                                               "&lt;"
+                                               -1)
+                          "&gt;"
+                          -1)))
 
   ; =========================================================================
   ; Mustache value helpers
@@ -168,10 +171,10 @@ input as long as the delimiters themselves are ASCII.")
   (private frame-from-mp)
   (hidden frame-from-mp)
   (defn frame-from-mp [inner-mp]
-    (Map.kv-reduce &(fn [acc k v]
-                     (let [inner @(Box.peek v)] (Map.put acc k &inner)))
-                   (the (Map String Mustache) {})
-                   inner-mp))
+    (Map.kv-reduce
+      &(fn [acc k v] (let [inner @(Box.peek v)] (Map.put acc k &inner)))
+      (the (Map String Mustache) {})
+      inner-mp))
 
   ; =========================================================================
   ; Parser
@@ -184,8 +187,9 @@ input as long as the delimiters themselves are ASCII.")
   (private parse-body)
   (hidden parse-body)
   (sig parse-body
-       (Fn [(Ref String) Int (Ref String) (Ref String) (Ref (Maybe String))]
-           (Pair (Array (Box Node)) (Pair Int Int))))
+       (Fn
+         [(Ref String) Int (Ref String) (Ref String) (Ref (Maybe String))]
+         (Pair (Array (Box Node)) (Pair Int Int))))
   (defn parse-body [s pos open close section-name]
     (let-do [nodes (the (Array (Box Node)) [])
              o @open
@@ -207,44 +211,51 @@ input as long as the delimiters themselves are ASCII.")
               (do
                 (when (< p slen)
                   (set! nodes
-                    (Array.push-back nodes
-                      (Box.init (Node.NLit (byte-slice s p slen))))))
+                        (Array.push-back nodes
+                                         (Box.init (Node.NLit (byte-slice s
+                                                                          p
+                                                                          slen))))))
                 (set! body-end slen)
                 (set! after-end slen)
                 (set! done true))
               (do
                 (when (> next-open p)
                   (set! nodes
-                    (Array.push-back nodes
-                      (Box.init (Node.NLit (byte-slice s p next-open))))))
+                        (Array.push-back nodes
+                                         (Box.init (Node.NLit (byte-slice s
+                                                                          p
+                                                                          next-open))))))
                 (let-do [tag-start (+ next-open o-len)
-                    raw-mode false
-                    effective-start tag-start]
+                         raw-mode false
+                         effective-start tag-start]
                   ; handle triple-mustache prefix
                   (when-do (and (< tag-start slen)
-                      (= \{ (String.char-at s tag-start)))
+                                (= \{ (String.char-at s tag-start)))
                     (set! raw-mode true)
                     (set! effective-start (Int.inc tag-start)))
                   (let [next-close (find-str-from s
-                        &c
-                        effective-start
-                        slen
-                        c-len
-                        c-first)]
+                                                  &c
+                                                  effective-start
+                                                  slen
+                                                  c-len
+                                                  c-first)]
                     (if (= next-close -1)
                       (do
                         (set! nodes
-                          (Array.push-back nodes
-                            (Box.init (Node.NLit (byte-slice s next-open slen)))))
+                              (Array.push-back nodes
+                                               (Box.init
+                                                 (Node.NLit (byte-slice s
+                                                                        next-open
+                                                                        slen)))))
                         (set! body-end slen)
                         (set! after-end slen)
                         (set! done true))
                       (let-do [raw-tag (byte-slice s effective-start next-close)
-                          after-tag (+ next-close c-len)]
+                               after-tag (+ next-close c-len)]
                         ; for raw-mode, skip the extra trailing `}`
                         (when (and raw-mode
-                            (< after-tag slen)
-                            (= \} (String.char-at s after-tag)))
+                                   (< after-tag slen)
+                                   (= \} (String.char-at s after-tag)))
                           (set! after-tag (Int.inc after-tag)))
                         (let [tag (fast-trim &raw-tag)]
                           (cond
@@ -253,17 +264,20 @@ input as long as the delimiters themselves are ASCII.")
                             (set! p after-tag)
                             ; set delimiter: {{=NEW-OPEN NEW-CLOSE=}}
                             (and (String.starts-with? &tag "=")
-                              (String.ends-with? &tag "="))
+                                 (String.ends-with? &tag "="))
                             (let-do [inner-len (Int.dec (String.length &tag))
-                                inner (fast-trim &(byte-slice &tag 1 inner-len))
-                                space-idx (String.index-of &inner \space)]
+                                     inner (fast-trim &(byte-slice &tag
+                                                                   1
+                                                                   inner-len))
+                                     space-idx (String.index-of &inner \space)]
                               (when (>= space-idx 0)
                                 (let-do [new-o (fast-trim &(byte-slice &inner
-                                        0
-                                        space-idx))
-                                    new-c (fast-trim &(byte-slice &inner
-                                        (Int.inc space-idx)
-                                        (String.length &inner)))]
+                                                                       0
+                                                                       space-idx))
+                                         new-c (fast-trim
+                                           &(byte-slice &inner
+                                                        (Int.inc space-idx)
+                                                        (String.length &inner)))]
                                   (set! o-len (String.length &new-o))
                                   (set! c-len (String.length &new-c))
                                   (set! o-first (String.char-at &new-o 0))
@@ -273,71 +287,70 @@ input as long as the delimiters themselves are ASCII.")
                               (set! p after-tag))
                             ; partial: {{> name }}
                             (String.starts-with? &tag ">")
-                            (let-do [name (fast-trim &(byte-slice &tag
-                                    1
-                                    (String.length &tag)))]
+                            (let-do [name (fast-trim
+                                       &(byte-slice &tag 1 (String.length &tag)))]
                               (set! nodes
-                                (Array.push-back nodes
-                                  (Box.init (Node.NPart name))))
+                                    (Array.push-back nodes
+                                                     (Box.init (Node.NPart name))))
                               (set! p after-tag))
                             ; section open: {{# name }}
                             (String.starts-with? &tag "#")
-                            (let-do [name (fast-trim &(byte-slice &tag
-                                    1
-                                    (String.length &tag)))
-                                child (parse-body s
-                                  after-tag
-                                  &o
-                                  &c
-                                  &(Maybe.Just @&name))
-                                child-nodes @(Pair.a &child)
-                                ends (Pair.b &child)]
+                            (let-do [name (fast-trim
+                                       &(byte-slice &tag 1 (String.length &tag)))
+                                     child (parse-body s
+                                                       after-tag
+                                                       &o
+                                                       &c
+                                                       &(Maybe.Just @&name))
+                                     child-nodes @(Pair.a &child)
+                                     ends (Pair.b &child)]
                               (if (= @(Pair.a ends) slen)
                                 ; unterminated: inline children, drop section wrapper
                                 (do
                                   (for [i 0 (Array.length &child-nodes)]
                                     (set! nodes
-                                      (Array.push-back nodes
-                                        @(Array.unsafe-nth &child-nodes i))))
+                                          (Array.push-back nodes
+                                                           @(Array.unsafe-nth &child-nodes
+                                                                              i))))
                                   (set! p @(Pair.b ends)))
                                 (let-do [raw-body (byte-slice s
-                                      after-tag
-                                      @(Pair.a ends))]
+                                                              after-tag
+                                                              @(Pair.a ends))]
                                   (set! nodes
-                                    (Array.push-back nodes
-                                      (Box.init (Node.NSect @&name
-                                          raw-body
-                                          child-nodes))))
+                                        (Array.push-back nodes
+                                                         (Box.init (Node.NSect @&name
+                                                                               raw-body
+                                                                               child-nodes))))
                                   (set! p @(Pair.b ends)))))
                             ; inverted section: {{^ name }}
                             (String.starts-with? &tag "^")
-                            (let-do [name (fast-trim &(byte-slice &tag
-                                    1
-                                    (String.length &tag)))
-                                child (parse-body s
-                                  after-tag
-                                  &o
-                                  &c
-                                  &(Maybe.Just @&name))
-                                child-nodes @(Pair.a &child)
-                                ends (Pair.b &child)]
+                            (let-do [name (fast-trim
+                                       &(byte-slice &tag 1 (String.length &tag)))
+                                     child (parse-body s
+                                                       after-tag
+                                                       &o
+                                                       &c
+                                                       &(Maybe.Just @&name))
+                                     child-nodes @(Pair.a &child)
+                                     ends (Pair.b &child)]
                               (if (= @(Pair.a ends) slen)
                                 (do
                                   (for [i 0 (Array.length &child-nodes)]
                                     (set! nodes
-                                      (Array.push-back nodes
-                                        @(Array.unsafe-nth &child-nodes i))))
+                                          (Array.push-back nodes
+                                                           @(Array.unsafe-nth &child-nodes
+                                                                              i))))
                                   (set! p @(Pair.b ends)))
                                 (do
                                   (set! nodes
-                                    (Array.push-back nodes
-                                      (Box.init (Node.NInv @&name child-nodes))))
+                                        (Array.push-back nodes
+                                                         (Box.init (Node.NInv @&name
+                                                                              child-nodes))))
                                   (set! p @(Pair.b ends)))))
                             ; section close: {{/ name }}
                             (String.starts-with? &tag "/")
-                            (let [name (fast-trim &(byte-slice &tag
-                                    1
-                                    (String.length &tag)))]
+                            (let [name (fast-trim
+                                    &(byte-slice &tag 1 (String.length &tag)))]
                               (match-ref section-name
                                 (Maybe.Just expected)
                                   (if (String.= &name expected)
@@ -349,22 +362,21 @@ input as long as the delimiters themselves are ASCII.")
                                 (Maybe.Nothing) (set! p after-tag)))
                             ; explicit raw var: {{& name }}
                             (String.starts-with? &tag "&")
-                            (let-do [name (fast-trim &(byte-slice &tag
-                                    1
-                                    (String.length &tag)))]
+                            (let-do [name (fast-trim
+                                       &(byte-slice &tag 1 (String.length &tag)))]
                               (set! nodes
-                                (Array.push-back nodes
-                                  (Box.init (Node.NRaw name))))
+                                    (Array.push-back nodes
+                                                     (Box.init (Node.NRaw name))))
                               (set! p after-tag))
                             ; normal var (raw or escaped depending on raw-mode)
                             (do
                               (if raw-mode
                                 (set! nodes
-                                  (Array.push-back nodes
-                                    (Box.init (Node.NRaw @&tag))))
+                                      (Array.push-back nodes
+                                                       (Box.init (Node.NRaw @&tag))))
                                 (set! nodes
-                                  (Array.push-back nodes
-                                    (Box.init (Node.NVar @&tag)))))
+                                      (Array.push-back nodes
+                                                       (Box.init (Node.NVar @&tag)))))
                               (set! p after-tag)))))))))))))
       (Pair.init nodes (Pair.init body-end after-end))))
 
@@ -386,25 +398,25 @@ input as long as the delimiters themselves are ASCII.")
   (private render-section)
   (hidden render-section)
   (sig render-nodes
-       (Fn [
-             (Ref (Array (Box Node)))
-             (Ref (Map String Mustache))
-             (Ref (Array (Map String Mustache)))]
-           String))
+       (Fn
+         [(Ref (Array (Box Node)))
+          (Ref (Map String Mustache))
+          (Ref (Array (Map String Mustache)))]
+         String))
   (sig render-node
-       (Fn [
-             (Ref Node)
-             (Ref (Map String Mustache))
-             (Ref (Array (Map String Mustache)))]
-           String))
+       (Fn
+         [(Ref Node)
+          (Ref (Map String Mustache))
+          (Ref (Array (Map String Mustache)))]
+         String))
   (sig render-section
-       (Fn [
-             (Ref Mustache)
-             (Ref (Array (Box Node)))
-             (Ref String)
-             (Ref (Map String Mustache))
-             (Ref (Array (Map String Mustache)))]
-           String))
+       (Fn
+         [(Ref Mustache)
+          (Ref (Array (Box Node)))
+          (Ref String)
+          (Ref (Map String Mustache))
+          (Ref (Array (Map String Mustache)))]
+         String))
 
   (defn render-nodes [nodes user-ctx frames]
     (let-do [result @""]
@@ -453,14 +465,16 @@ input as long as the delimiters themselves are ASCII.")
                   (do
                     (Array.push-back! frames (frame-from-mp m))
                     (set! out
-                      (String.append &out &(render-nodes body user-ctx frames)))
+                          (String.append &out
+                                         &(render-nodes body user-ctx frames)))
                     (ignore (Array.pop-back! frames)))
                 _
                   (let-do [empty-f (the (Map String Mustache) {})
-                      dot-frame (Map.put empty-f "." item)]
+                           dot-frame (Map.put empty-f "." item)]
                     (Array.push-back! frames dot-frame)
                     (set! out
-                      (String.append &out &(render-nodes body user-ctx frames)))
+                          (String.append &out
+                                         &(render-nodes body user-ctx frames)))
                     (ignore (Array.pop-back! frames))))))
           out)))
 
