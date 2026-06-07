@@ -14,6 +14,10 @@
                &{@"thing" (Mustache.Str @"<strawberry>")})
     "simple templating & escaping works")
   (assert-equal test
+    "&amp; &lt; &gt; &quot; &#39;"
+    &(template "{{ x }}" &{@"x" (Mustache.Str @"& < > \" '")})
+    "escapes all five HTML-significant characters")
+  (assert-equal test
     "this is a <strawberry>"
     &(template "this is a {{{ thing }}}"
                &{@"thing" (Mustache.Str @"<strawberry>")})
