@@ -103,25 +103,37 @@ input as long as the delimiters themselves are ASCII.")
   ; HTML escape
   ; =========================================================================
 
-  ; HTML-escape with a fast path: if there are no metacharacters, just copy
-  ; the string. The slow path runs three Pattern.substitute calls, each of
-  ; which allocates a new String — avoid triple allocation on the common case.
+  ; HTML-escape all five significant characters: & < > " '
+  ; Single-pass: scans the string once, replacing metacharacters inline.
+  ; Pattern.substitute can't be used for " due to a Carp codegen limitation.
   (private escape)
   (hidden escape)
   (defn escape [s]
     (if (and (= -1 (String.index-of s \&))
-             (and (= -1 (String.index-of s \<)) (= -1 (String.index-of s \>))))
+             (and (= -1 (String.index-of s \<))
+                  (and (= -1 (String.index-of s \>))
+                       (and (= -1 (String.index-of s \"))
+                            (= -1 (String.index-of s \'))))))
+      ;'
       @s
-      (Pattern.substitute #">"
-                          &(Pattern.substitute #"<"
-                                               &(Pattern.substitute #"&"
-                                                                    s
-                                                                    "&amp;"
-                                                                    -1)
-                                               "&lt;"
-                                               -1)
-                          "&gt;"
-                          -1)))
+      (let-do [result @""
+               len (String.length s)]
+        (for [i 0 len]
+          (let [ch (String.char-at s i)]
+            (cond
+              (= ch \&)
+              (set! result (String.append &result "&amp;"))
+              (= ch \<)
+              (set! result (String.append &result "&lt;"))
+              (= ch \>)
+              (set! result (String.append &result "&gt;"))
+              (= ch \")
+              (set! result (String.append &result "&quot;"))
+              (= ch \')
+              (set! result (String.append &result "&#39;"))
+              ;'
+              (set! result (String.append &result &(str ch))))))
+        result)))
 
   ; =========================================================================
   ; Mustache value helpers
