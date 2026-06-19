@@ -43,10 +43,6 @@ input as long as the delimiters themselves are ASCII.")
   (hidden prn)
   (hidden str)
 
-  ; =========================================================================
-  ; Byte-level string helpers
-  ; =========================================================================
-
   (private byte-slice)
   (hidden byte-slice)
   (defn byte-slice [s a b]
@@ -99,12 +95,7 @@ input as long as the delimiters themselves are ASCII.")
           (set! i (Int.inc i))))
       found))
 
-  ; =========================================================================
-  ; HTML escape
-  ; =========================================================================
-
   ; HTML-escape all five significant characters: & < > " '
-  ; Single-pass: scans the string once, replacing metacharacters inline.
   ; Pattern.substitute can't be used for " due to a Carp codegen limitation.
   (private escape)
   (hidden escape)
@@ -134,10 +125,6 @@ input as long as the delimiters themselves are ASCII.")
               ;'
               (set! result (String.append &result &(str ch))))))
         result)))
-
-  ; =========================================================================
-  ; Mustache value helpers
-  ; =========================================================================
 
   (private to-str)
   (hidden to-str)
@@ -187,10 +174,6 @@ input as long as the delimiters themselves are ASCII.")
       &(fn [acc k v] (let [inner @(Box.peek v)] (Map.put acc k &inner)))
       (the (Map String Mustache) {})
       inner-mp))
-
-  ; =========================================================================
-  ; Parser
-  ; =========================================================================
 
   ; parse-body returns (Pair nodes (Pair body-end after-tag))
   ; where body-end is the offset of the matching close tag's start
@@ -399,10 +382,6 @@ input as long as the delimiters themselves are ASCII.")
           r (parse-body s 0 "{{" "}}" &none)]
       @(Pair.a &r)))
 
-  ; =========================================================================
-  ; Renderer
-  ; =========================================================================
-
   (private render-nodes)
   (hidden render-nodes)
   (private render-node)
@@ -489,10 +468,6 @@ input as long as the delimiters themselves are ASCII.")
                                          &(render-nodes body user-ctx frames)))
                     (ignore (Array.pop-back! frames))))))
           out)))
-
-  ; =========================================================================
-  ; Public API
-  ; =========================================================================
 
   (doc template "templates a [Mustache](https://mustache.github.io/)-formatted
 string `s` using the map `values`.
