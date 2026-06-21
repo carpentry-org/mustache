@@ -182,4 +182,51 @@
                &{@"fs" (Mustache.Lst
                    [(Box.init (Mustache.Lambda (fn [x] x)))
                     (Box.init (Mustache.Lambda (fn [x] x)))])})
-    "list of lambdas stringifies each as #lambda"))
+    "list of lambdas stringifies each as #lambda")
+  ; standalone tag whitespace handling
+  (assert-equal test
+    "Begin\nEnd\n"
+    &(template "Begin\n  {{! standalone comment }}\nEnd\n" &{})
+    "standalone comment strips entire line")
+  (assert-equal test
+    "hello world"
+    &(template "hello {{! inline comment }}world" &{})
+    "inline comment preserves surrounding text")
+  (assert-equal test
+    "|\n|"
+    &(template "|\n{{# bool }}\n{{/ bool }}\n|"
+               &{@"bool" (Mustache.Str @"true")})
+    "standalone section open and close strip their lines")
+  (assert-equal test
+    "|\nContent\n|"
+    &(template "|\n{{# bool }}\nContent\n{{/ bool }}\n|"
+               &{@"bool" (Mustache.Str @"true")})
+    "standalone section preserves body content")
+  (assert-equal test
+    "|\n="
+    &(template "|\n{{= | | =}}\n|content|" &{@"content" (Mustache.Str @"=")})
+    "standalone set-delimiter strips its line")
+  (assert-equal test
+    ""
+    &(template "  {{! comment }}\n" &{})
+    "standalone comment at start strips line including newline")
+  (assert-equal test
+    "!\n"
+    &(template "!\n  {{! comment }}" &{})
+    "standalone comment at end strips line without trailing newline")
+  (assert-equal test
+    "|\n-1-\n-2-\n|"
+    &(template "|\n{{# items }}\n-{{.}}-\n{{/ items }}\n|"
+               &{@"items" (Mustache.Lst
+                   [(Box.init (Mustache.Str @"1"))
+                    (Box.init (Mustache.Str @"2"))])})
+    "standalone section with list iteration")
+  (assert-equal test
+    "|\n^\n|"
+    &(template "|\n{{^ bool }}\n^\n{{/ bool }}\n|"
+               &{@"bool" (Mustache.Str @"")})
+    "standalone inverted section strips its lines")
+  (assert-equal test
+    "Begin\n\n\nEnd\n"
+    &(template "Begin\n\n{{! comment }}\n\nEnd\n" &{})
+    "standalone comment with surrounding blank lines preserves blanks"))

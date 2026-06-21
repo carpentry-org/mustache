@@ -177,6 +177,92 @@ input as long as the delimiters themselves are ASCII.")
       (the (Map String Mustache) {})
       inner-mp))
 
+  ; Scan backwards from `pos` (exclusive) checking that only horizontal
+  ; whitespace exists back to the previous newline or start of string.
+  ; Returns the position of the first whitespace character in that run,
+  ; or -1 if non-whitespace was found.
+  (private standalone-before)
+  (hidden standalone-before)
+  (defn standalone-before [s pos]
+    (let-do [i (Int.dec pos)
+             result 0
+             done false]
+      (while-do (and (not done) (>= i 0))
+        (let [ch (String.char-at s i)]
+          (cond
+            (= ch \newline)
+            (do (set! result (Int.inc i)) (set! done true))
+            (or (= ch \space) (= ch \tab))
+            (set! i (Int.dec i))
+            (do (set! result -1) (set! done true)))))
+      result))
+
+  ; Scan forward from `pos` checking that only horizontal whitespace exists
+  ; up to the next newline or end of string. Returns the position after the
+  ; newline, `slen` at end of string, or -1 if non-whitespace found.
+  (private standalone-after)
+  (hidden standalone-after)
+  (defn standalone-after [s pos slen]
+    (let-do [i pos
+             result slen
+             done false]
+      (while-do (and (not done) (< i slen))
+        (let [ch (String.char-at s i)]
+          (cond
+            (= ch \newline)
+            (do (set! result (Int.inc i)) (set! done true))
+            (= ch \return)
+            (set! i (Int.inc i))
+            (or (= ch \space) (= ch \tab))
+            (set! i (Int.inc i))
+            (do (set! result -1) (set! done true)))))
+      result))
+
+  ; Trim trailing horizontal whitespace from the last NLit in `nodes`.
+  ; Used for standalone close tags when no literal was added this iteration.
+  (private trim-last-nlit-ws)
+  (hidden trim-last-nlit-ws)
+  (defn trim-last-nlit-ws [nodes]
+    (when (> (Array.length nodes) 0)
+      (let-do [last-idx (Int.dec (Array.length nodes))
+               replacement (the (Maybe String) (Maybe.Nothing))
+               should-pop false]
+        (let [last-node (Box.peek (Array.unsafe-nth nodes last-idx))]
+          (match-ref last-node
+            (Node.NLit lit-s)
+              (let-do [blen (String.length lit-s)
+                       b blen]
+                (while-do (and (> b 0)
+                               (let [ch (String.char-at lit-s (Int.dec b))]
+                                 (or (= ch \space) (= ch \tab))))
+                  (set! b (Int.dec b)))
+                (cond
+                  (= b 0) (set! should-pop true)
+                  (< b blen)
+                  (set! replacement (Maybe.Just (byte-slice lit-s 0 b)))
+                  ()))
+            _ ()))
+        (if should-pop
+          (ignore (Array.pop-back! nodes))
+          (match replacement
+            (Maybe.Just trimmed)
+            (Array.aset! nodes last-idx (Box.init (Node.NLit trimmed)))
+            (Maybe.Nothing) ())))))
+
+  ; Apply standalone whitespace trimming to the last NLit in `nodes`.
+  ; `lit-start` is where the literal added this iteration starts in `s`.
+  ; `sa-b` is the standalone-before result. `next-open` is the tag position.
+  (private trim-sa-lit)
+  (hidden trim-sa-lit)
+  (defn trim-sa-lit [nodes s lit-start sa-b next-open]
+    (if (> next-open lit-start)
+      (if (= sa-b lit-start)
+        (ignore (Array.pop-back! nodes))
+        (when (< sa-b next-open)
+          (Array.aset! nodes (Int.dec (Array.length nodes))
+                       (Box.init (Node.NLit (byte-slice s lit-start sa-b))))))
+      (trim-last-nlit-ws nodes)))
+
   ; parse-body returns (Pair nodes (Pair body-end after-tag))
   ; where body-end is the offset of the matching close tag's start
   ; and after-tag is the offset after the close tag. For top-level parses
@@ -196,6 +282,7 @@ input as long as the delimiters themselves are ASCII.")
              o-first (String.char-at open 0)
              c-first (String.char-at close 0)
              p pos
+             lit-start pos
              slen (String.length s)
              body-end slen
              after-end slen
@@ -216,6 +303,7 @@ input as long as the delimiters themselves are ASCII.")
                 (set! after-end slen)
                 (set! done true))
               (do
+                (set! lit-start p)
                 (when (> next-open p)
                   (set! nodes
                         (Array.push-back nodes
@@ -258,7 +346,12 @@ input as long as the delimiters themselves are ASCII.")
                           (cond
                             ; comment: {{! ... }}
                             (String.starts-with? &tag "!")
-                            (set! p after-tag)
+                            (let-do [sa-b (standalone-before s next-open)
+                                     sa-a (standalone-after s after-tag slen)
+                                     sa (and (>= sa-b 0) (>= sa-a 0))]
+                              (when sa
+                                (trim-sa-lit &nodes s lit-start sa-b next-open))
+                              (set! p (if sa sa-a after-tag)))
                             ; set delimiter: {{=NEW-OPEN NEW-CLOSE=}}
                             (and (String.starts-with? &tag "=")
                                  (String.ends-with? &tag "="))
@@ -281,26 +374,43 @@ input as long as the delimiters themselves are ASCII.")
                                   (set! c-first (String.char-at &new-c 0))
                                   (set! o new-o)
                                   (set! c new-c)))
-                              (set! p after-tag))
+                              (let-do [sa-b (standalone-before s next-open)
+                                       sa-a (standalone-after s after-tag slen)
+                                       sa (and (>= sa-b 0) (>= sa-a 0))]
+                                (when sa
+                                  (trim-sa-lit &nodes s lit-start sa-b
+                                               next-open))
+                                (set! p (if sa sa-a after-tag))))
                             ; partial: {{> name }}
                             (String.starts-with? &tag ">")
                             (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))]
+                                       &(byte-slice &tag 1 (String.length &tag)))
+                                     sa-b (standalone-before s next-open)
+                                     sa-a (standalone-after s after-tag slen)
+                                     sa (and (>= sa-b 0) (>= sa-a 0))]
+                              (when sa
+                                (trim-sa-lit &nodes s lit-start sa-b next-open))
                               (set! nodes
                                     (Array.push-back nodes
                                                      (Box.init (Node.NPart name))))
-                              (set! p after-tag))
+                              (set! p (if sa sa-a after-tag)))
                             ; section open: {{# name }}
                             (String.starts-with? &tag "#")
                             (let-do [name (fast-trim
                                        &(byte-slice &tag 1 (String.length &tag)))
+                                     sa-b (standalone-before s next-open)
+                                     sa-a (standalone-after s after-tag slen)
+                                     sa (and (>= sa-b 0) (>= sa-a 0))
+                                     body-start (if sa sa-a after-tag)
                                      child (parse-body s
-                                                       after-tag
+                                                       body-start
                                                        &o
                                                        &c
                                                        &(Maybe.Just @&name))
                                      child-nodes @(Pair.a &child)
                                      ends (Pair.b &child)]
+                              (when sa
+                                (trim-sa-lit &nodes s lit-start sa-b next-open))
                               (if (= @(Pair.a ends) slen)
                                 ; unterminated: inline children, drop section wrapper
                                 (do
@@ -323,13 +433,19 @@ input as long as the delimiters themselves are ASCII.")
                             (String.starts-with? &tag "^")
                             (let-do [name (fast-trim
                                        &(byte-slice &tag 1 (String.length &tag)))
+                                     sa-b (standalone-before s next-open)
+                                     sa-a (standalone-after s after-tag slen)
+                                     sa (and (>= sa-b 0) (>= sa-a 0))
+                                     body-start (if sa sa-a after-tag)
                                      child (parse-body s
-                                                       after-tag
+                                                       body-start
                                                        &o
                                                        &c
                                                        &(Maybe.Just @&name))
                                      child-nodes @(Pair.a &child)
                                      ends (Pair.b &child)]
+                              (when sa
+                                (trim-sa-lit &nodes s lit-start sa-b next-open))
                               (if (= @(Pair.a ends) slen)
                                 (do
                                   (for [i 0 (Array.length &child-nodes)]
@@ -351,9 +467,15 @@ input as long as the delimiters themselves are ASCII.")
                               (match-ref section-name
                                 (Maybe.Just expected)
                                   (if (String.= &name expected)
-                                    (do
+                                    (let-do [sa-b (standalone-before s next-open)
+                                             sa-a (standalone-after s after-tag
+                                                                    slen)
+                                             sa (and (>= sa-b 0) (>= sa-a 0))]
+                                      (when sa
+                                        (trim-sa-lit &nodes s lit-start sa-b
+                                                     next-open))
                                       (set! body-end next-open)
-                                      (set! after-end after-tag)
+                                      (set! after-end (if sa sa-a after-tag))
                                       (set! done true))
                                     (set! p after-tag))
                                 (Maybe.Nothing) (set! p after-tag)))
