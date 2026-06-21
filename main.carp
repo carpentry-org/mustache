@@ -1,3 +1,5 @@
+(load "git@github.com:carpentry-org/strbuf@0.1.0")
+
 (doc Mustache "is a full [Mustache](https://mustache.github.io/) templating
 implementation for Carp.
 
@@ -410,11 +412,12 @@ input as long as the delimiters themselves are ASCII.")
          String))
 
   (defn render-nodes [nodes user-ctx frames]
-    (let-do [result @""]
+    (let-do [sb (StringBuf.create)]
       (for [i 0 (Array.length nodes)]
-        (let [n (Box.peek (Array.unsafe-nth nodes i))]
-          (set! result (String.append &result &(render-node n user-ctx frames)))))
-      result))
+        (let [n (Box.peek (Array.unsafe-nth nodes i))
+              piece (render-node n user-ctx frames)]
+          (StringBuf.append-str &sb &piece)))
+      (StringBuf.to-string &sb)))
 
   (defn render-node [n user-ctx frames]
     (match-ref n
@@ -448,26 +451,24 @@ input as long as the delimiters themselves are ASCII.")
           (ignore (Array.pop-back! frames))
           out)
       (Mustache.Lst items)
-        (let-do [out @""]
+        (let-do [sb (StringBuf.create)]
           (for [i 0 (Array.length items)]
             (let [item (Box.peek (Array.unsafe-nth items i))]
               (match-ref item
                 (Mustache.Mp m)
                   (do
                     (Array.push-back! frames (frame-from-mp m))
-                    (set! out
-                          (String.append &out
-                                         &(render-nodes body user-ctx frames)))
+                    (StringBuf.append-str &sb
+                                          &(render-nodes body user-ctx frames))
                     (ignore (Array.pop-back! frames)))
                 _
                   (let-do [empty-f (the (Map String Mustache) {})
                            dot-frame (Map.put empty-f "." item)]
                     (Array.push-back! frames dot-frame)
-                    (set! out
-                          (String.append &out
-                                         &(render-nodes body user-ctx frames)))
+                    (StringBuf.append-str &sb
+                                          &(render-nodes body user-ctx frames))
                     (ignore (Array.pop-back! frames))))))
-          out)))
+          (StringBuf.to-string &sb))))
 
   (doc template "templates a [Mustache](https://mustache.github.io/)-formatted
 string `s` using the map `values`.
