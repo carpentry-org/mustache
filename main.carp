@@ -190,10 +190,8 @@ input as long as the delimiters themselves are ASCII.")
       (while-do (and (not done) (>= i 0))
         (let [ch (String.char-at s i)]
           (cond
-            (= ch \newline)
-            (do (set! result (Int.inc i)) (set! done true))
-            (or (= ch \space) (= ch \tab))
-            (set! i (Int.dec i))
+            (= ch \newline) (do (set! result (Int.inc i)) (set! done true))
+            (or (= ch \space) (= ch \tab)) (set! i (Int.dec i))
             (do (set! result -1) (set! done true)))))
       result))
 
@@ -209,12 +207,9 @@ input as long as the delimiters themselves are ASCII.")
       (while-do (and (not done) (< i slen))
         (let [ch (String.char-at s i)]
           (cond
-            (= ch \newline)
-            (do (set! result (Int.inc i)) (set! done true))
-            (= ch \return)
-            (set! i (Int.inc i))
-            (or (= ch \space) (= ch \tab))
-            (set! i (Int.inc i))
+            (= ch \newline) (do (set! result (Int.inc i)) (set! done true))
+            (= ch \return) (set! i (Int.inc i))
+            (or (= ch \space) (= ch \tab)) (set! i (Int.inc i))
             (do (set! result -1) (set! done true)))))
       result))
 
@@ -239,14 +234,14 @@ input as long as the delimiters themselves are ASCII.")
                 (cond
                   (= b 0) (set! should-pop true)
                   (< b blen)
-                  (set! replacement (Maybe.Just (byte-slice lit-s 0 b)))
+                    (set! replacement (Maybe.Just (byte-slice lit-s 0 b)))
                   ()))
             _ ()))
         (if should-pop
           (ignore (Array.pop-back! nodes))
           (match replacement
             (Maybe.Just trimmed)
-            (Array.aset! nodes last-idx (Box.init (Node.NLit trimmed)))
+              (Array.aset! nodes last-idx (Box.init (Node.NLit trimmed)))
             (Maybe.Nothing) ())))))
 
   ; Apply standalone whitespace trimming to the last NLit in `nodes`.
@@ -259,7 +254,8 @@ input as long as the delimiters themselves are ASCII.")
       (if (= sa-b lit-start)
         (ignore (Array.pop-back! nodes))
         (when (< sa-b next-open)
-          (Array.aset! nodes (Int.dec (Array.length nodes))
+          (Array.aset! nodes
+                       (Int.dec (Array.length nodes))
                        (Box.init (Node.NLit (byte-slice s lit-start sa-b))))))
       (trim-last-nlit-ws nodes)))
 
@@ -378,8 +374,7 @@ input as long as the delimiters themselves are ASCII.")
                                        sa-a (standalone-after s after-tag slen)
                                        sa (and (>= sa-b 0) (>= sa-a 0))]
                                 (when sa
-                                  (trim-sa-lit &nodes s lit-start sa-b
-                                               next-open))
+                                  (trim-sa-lit &nodes s lit-start sa-b next-open))
                                 (set! p (if sa sa-a after-tag))))
                             ; partial: {{> name }}
                             (String.starts-with? &tag ">")
@@ -468,11 +463,15 @@ input as long as the delimiters themselves are ASCII.")
                                 (Maybe.Just expected)
                                   (if (String.= &name expected)
                                     (let-do [sa-b (standalone-before s next-open)
-                                             sa-a (standalone-after s after-tag
+                                             sa-a (standalone-after s
+                                                                    after-tag
                                                                     slen)
                                              sa (and (>= sa-b 0) (>= sa-a 0))]
                                       (when sa
-                                        (trim-sa-lit &nodes s lit-start sa-b
+                                        (trim-sa-lit &nodes
+                                                     s
+                                                     lit-start
+                                                     sa-b
                                                      next-open))
                                       (set! body-end next-open)
                                       (set! after-end (if sa sa-a after-tag))
