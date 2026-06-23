@@ -182,4 +182,69 @@
                &{@"fs" (Mustache.Lst
                    [(Box.init (Mustache.Lambda (fn [x] x)))
                     (Box.init (Mustache.Lambda (fn [x] x)))])})
-    "list of lambdas stringifies each as #lambda"))
+    "list of lambdas stringifies each as #lambda")
+  ; standalone tag whitespace handling
+  (assert-equal test "Begin
+End
+" &(template "Begin
+  {{! standalone comment }}
+End
+" &{}) "standalone comment strips entire line")
+  (assert-equal test
+    "hello world"
+    &(template "hello {{! inline comment }}world" &{})
+    "inline comment preserves surrounding text")
+  (assert-equal test "|
+|" &(template "|
+{{# bool }}
+{{/ bool }}
+|" &{@"bool" (Mustache.Str @"true")}) "standalone section open and close strip their lines")
+  (assert-equal test "|
+Content
+|" &(template "|
+{{# bool }}
+Content
+{{/ bool }}
+|" &{@"bool" (Mustache.Str @"true")}) "standalone section preserves body content")
+  (assert-equal test "|
+=" &(template "|
+{{= | | =}}
+|content|" &{@"content" (Mustache.Str @"=")}) "standalone set-delimiter strips its line")
+  (assert-equal test "" &(template "  {{! comment }}
+" &{}) "standalone comment at start strips line including newline")
+  (assert-equal test "!
+" &(template "!
+  {{! comment }}" &{}) "standalone comment at end strips line without trailing newline")
+  (assert-equal test "|
+-1-
+-2-
+|" &(template "|
+{{# items }}
+-{{.}}-
+{{/ items }}
+|" &{@"items" (Mustache.Lst
+       [(Box.init (Mustache.Str @"1")) (Box.init (Mustache.Str @"2"))])}) "standalone section with list iteration")
+  (assert-equal test "|
+^
+|" &(template "|
+{{^ bool }}
+^
+{{/ bool }}
+|" &{@"bool" (Mustache.Str @"")}) "standalone inverted section strips its lines")
+  (assert-equal test "Begin
+
+
+End
+" &(template "Begin
+
+{{! comment }}
+
+End
+" &{}) "standalone comment with surrounding blank lines preserves blanks")
+  (assert-equal test "Begin
+hi, world!
+End
+" &(template "Begin
+  {{> test/file }}
+End
+" &{@"name" (Mustache.Str @"world")}) "standalone partial strips its line"))
