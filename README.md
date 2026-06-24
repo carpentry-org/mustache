@@ -9,7 +9,7 @@ comments, and set-delimiter tags.
 ## Installing
 
 ```clojure
-(load "git@github.com:carpentry-org/mustache@0.1.0")
+(load "git@github.com:carpentry-org/mustache@0.1.1")
 ```
 
 ## Usage
