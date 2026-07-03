@@ -247,4 +247,64 @@ End
 " &(template "Begin
   {{> test/file }}
 End
-" &{@"name" (Mustache.Str @"world")}) "standalone partial strips its line"))
+" &{@"name" (Mustache.Str @"world")}) "standalone partial strips its line")
+  ; dotted-name resolution
+  (assert-equal test
+    "Ada"
+    &(template "{{user.name}}"
+               &{@"user" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))})})
+    "dotted interpolation resolves a nested map value")
+  (assert-equal test
+    "deep"
+    &(template "{{a.b.c}}"
+               &{@"a" (Mustache.Mp
+                   {@"b" (Box.init
+                      (Mustache.Mp {@"c" (Box.init (Mustache.Str @"deep"))}))})})
+    "dotted interpolation resolves arbitrary depth")
+  (assert-equal test
+    "&lt;x&gt;"
+    &(template "{{a.b}}"
+               &{@"a" (Mustache.Mp {@"b" (Box.init (Mustache.Str @"<x>"))})})
+    "dotted interpolation escapes like a plain var")
+  (assert-equal test
+    "<x>"
+    &(template "{{{a.b}}}"
+               &{@"a" (Mustache.Mp {@"b" (Box.init (Mustache.Str @"<x>"))})})
+    "dotted interpolation is not escaped in triple-mustache")
+  (assert-equal test
+    "Carp is typed"
+    &(template "{{#a.b}}{{name}} is {{kind}}{{/a.b}}"
+               &{@"a" (Mustache.Mp
+                   {@"b" (Box.init
+                      (Mustache.Mp
+                        {@"name" (Box.init (Mustache.Str @"Carp"))
+                         @"kind" (Box.init (Mustache.Str @"typed"))}))})})
+    "dotted section pushes the nested map as a context frame")
+  (assert-equal test
+    "1 2 "
+    &(template "{{#a.nums}}{{.}} {{/a.nums}}"
+               &{@"a" (Mustache.Mp
+                   {@"nums" (Box.init
+                      (Mustache.Lst
+                        [(Box.init (Mustache.Str @"1"))
+                         (Box.init (Mustache.Str @"2"))]))})})
+    "dotted section resolving to a list iterates")
+  (assert-equal test
+    "x"
+    &(template "x{{a.missing.deep}}"
+               &{@"a" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))})})
+    "dotted name through a missing intermediate renders empty")
+  (assert-equal test
+    "x"
+    &(template "x{{#a.missing}}body{{/a.missing}}"
+               &{@"a" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))})})
+    "dotted section with a missing key is skipped")
+  (assert-equal test
+    "no b"
+    &(template "{{^a.b}}no b{{/a.b}}"
+               &{@"a" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))})})
+    "inverted dotted section renders when the name is missing")
+  (assert-equal test
+    ""
+    &(template "{{a.b}}" &{@"a" (Mustache.Str @"plain")})
+    "dotted name into a non-map value renders empty"))

@@ -3,8 +3,8 @@
 A [Mustache](https://mustache.github.io) templating library for Carp.
 
 Supports the full spec: variables, HTML-escaped and unescaped output,
-sections, inverted sections, object and list contexts, lambdas, partials,
-comments, and set-delimiter tags.
+sections, inverted sections, object and list contexts, dotted names,
+lambdas, partials, comments, and set-delimiter tags.
 
 ## Installing
 
@@ -75,6 +75,26 @@ context stack. Outer keys fall through:
     @"role" (Mustache.Str @"admin")})
 ; => "Ada (admin)"
 ```
+
+### Dotted names
+
+A dotted name walks nested `Mp` values. The first segment is looked up on
+the context stack; each further segment must be a key of the previous
+segment's map:
+
+```clojure
+(Mustache.template
+  "{{user.address.city}}"
+  &{@"user" (Mustache.Mp
+             {@"address" (Box.init
+                          (Mustache.Mp {@"city" (Box.init (Mustache.Str @"Berlin"))}))})})
+; => "Berlin"
+```
+
+Dotted names work in interpolation, sections (`{{#a.b}}…{{/a.b}}`), and
+inverted sections. If any segment is missing or is not a map, the name is
+treated as absent — interpolation renders empty, a section is skipped, and
+an inverted section renders. A bare `{{.}}` remains the implicit iterator.
 
 ### Lambdas
 

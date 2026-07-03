@@ -16,8 +16,8 @@ kinds: strings, lists, nested maps, and lambdas.
 ```
 
 Supports comments, section iteration, inverted sections, object contexts,
-partials, and the set-delimiter tag. Templates are parsed into an intermediate
-node tree before rendering, so nested sections work correctly.
+dotted names, partials, and the set-delimiter tag. Templates are parsed into an
+intermediate node tree before rendering, so nested sections work correctly.
 
 Templates are processed at byte level, which is correct for ASCII and UTF-8
 input as long as the delimiters themselves are ASCII.")
@@ -149,23 +149,69 @@ input as long as the delimiters themselves are ASCII.")
       (Mustache.Mp _) false
       (Mustache.Lambda _) false))
 
-  ; Walk the frame stack from top (newest) to bottom, falling through to
-  ; user-ctx if the name isn't bound in any frame. This avoids ever copying
+  ; Resolve a single (non-dotted) name against the frame stack from top
+  ; (newest) to bottom, falling through to user-ctx if unbound. Returns
+  ; Nothing when the name is absent everywhere. This avoids ever copying
   ; user-ctx during rendering — only the tiny section frames get copied
   ; when a new frame is pushed.
-  (private lookup-val)
-  (hidden lookup-val)
-  (defn lookup-val [user-ctx frames name]
+  (private resolve-head)
+  (hidden resolve-head)
+  (defn resolve-head [user-ctx frames name]
     (let-do [i (Int.dec (Array.length frames))
              found (the (Maybe Mustache) (Maybe.Nothing))]
       (while-do (and (>= i 0) (Maybe.nothing? &found))
         (set! found (Map.get-maybe (Array.unsafe-nth frames i) name))
         (set! i (Int.dec i)))
       (match found
-        (Maybe.Just v) v
-        (Maybe.Nothing)
-          (let [dflt (Mustache.Str @"")]
-            (Map.get-with-default user-ctx name &dflt)))))
+        (Maybe.Just v) (Maybe.Just v)
+        (Maybe.Nothing) (Map.get-maybe user-ctx name))))
+
+  ; Descend one dotted segment into a value. Only an Mp can be descended,
+  ; and only when it holds `seg` as a key; anything else is Nothing.
+  (private descend)
+  (hidden descend)
+  (defn descend [cur seg]
+    (match cur
+      (Mustache.Mp inner)
+        (match (Map.get-maybe &inner seg)
+          (Maybe.Just boxed) (Maybe.Just @(Box.peek &boxed))
+          (Maybe.Nothing) (Maybe.Nothing))
+      _ (Maybe.Nothing)))
+
+  ; Fold the tail segments of a dotted name over the resolved head value,
+  ; descending into nested Mp maps. A missing key or non-Mp step short-
+  ; circuits the whole name to Nothing.
+  (private descend-path)
+  (hidden descend-path)
+  (sig descend-path
+       (Fn [(Maybe Mustache) (Ref (Array String)) Int] (Maybe Mustache)))
+  (defn descend-path [cur segs i]
+    (if (>= i (Array.length segs))
+      cur
+      (match cur
+        (Maybe.Nothing) (Maybe.Nothing)
+        (Maybe.Just v)
+          (descend-path (descend v (Array.unsafe-nth segs i)) segs (Int.inc i)))))
+
+  ; A dotted name contains a `.` but is not the bare implicit-iterator `.`.
+  (private dotted?)
+  (hidden dotted?)
+  (defn dotted? [name]
+    (and (not (String.= name ".")) (>= (String.index-of name \.) 0)))
+
+  ; Resolve a possibly-dotted name to an owned value, or Nothing if it can't
+  ; be resolved. The head segment searches the frame/context stack; every
+  ; subsequent segment must be a direct key of the previous result's Mp.
+  (private resolve-name)
+  (hidden resolve-name)
+  (defn resolve-name [user-ctx frames name]
+    (if (dotted? name)
+      (let [segs (String.split-by name &[\.])]
+        (descend-path
+          (resolve-head user-ctx frames (Array.unsafe-nth &segs 0))
+          &segs
+          1))
+      (resolve-head user-ctx frames name)))
 
   ; Turn an Mp's inner Map (String -> Box Mustache) into a frame-shaped
   ; Map (String -> Mustache) by unboxing each value.
@@ -544,14 +590,22 @@ input as long as the delimiters themselves are ASCII.")
     (match-ref n
       (Node.NLit s) @s
       (Node.NVar name)
-        (let [v (lookup-val user-ctx frames name)] (escape &(to-str &v)))
-      (Node.NRaw name) (let [v (lookup-val user-ctx frames name)] (to-str &v))
+        (match (resolve-name user-ctx frames name)
+          (Maybe.Just v) (escape &(to-str &v))
+          (Maybe.Nothing) @"")
+      (Node.NRaw name)
+        (match (resolve-name user-ctx frames name)
+          (Maybe.Just v) (to-str &v)
+          (Maybe.Nothing) @"")
       (Node.NSect name raw-body body)
-        (let [v (lookup-val user-ctx frames name)]
-          (render-section &v body raw-body user-ctx frames))
+        (match (resolve-name user-ctx frames name)
+          (Maybe.Just v) (render-section &v body raw-body user-ctx frames)
+          (Maybe.Nothing) @"")
       (Node.NInv name body)
-        (let [v (lookup-val user-ctx frames name)]
-          (if (falsy? &v) (render-nodes body user-ctx frames) @""))
+        (match (resolve-name user-ctx frames name)
+          (Maybe.Just v)
+            (if (falsy? &v) (render-nodes body user-ctx frames) @"")
+          (Maybe.Nothing) (render-nodes body user-ctx frames))
       (Node.NPart name)
         (let [fname (format "%s.mustache" name)
               contents? (IO.read-file &fname)]
@@ -612,6 +666,13 @@ Example:
   \"this is a super {{ adjective }} library\"
   &{@\"adjective\" (Mustache.Str @\"cool\")})
 ```
+
+Dotted names like `{{a.b.c}}` walk nested `Mp` values: the first segment is
+looked up on the context stack, then each further segment must be a key of the
+previous segment's map. This works in interpolation, sections, and inverted
+sections. If any segment is missing or is not a map, the name is treated as
+absent (renders empty / skips the section). A bare `{{.}}` remains the implicit
+iterator.
 
 Trimming: names inside mustache tags are trimmed, so `{{ thing }}` looks up
 `\"thing\"`. Opening and closing section markers must use consistent names,
