@@ -109,24 +109,24 @@ input as long as the delimiters themselves are ASCII.")
                             (= -1 (String.index-of s \'))))))
       ;'
       @s
-      (let-do [result @""
+      (let-do [sb (StringBuf.create)
                len (String.length s)]
         (for [i 0 len]
           (let [ch (String.char-at s i)]
             (cond
               (= ch \&)
-              (set! result (String.append &result "&amp;"))
+              (StringBuf.append-str &sb "&amp;")
               (= ch \<)
-              (set! result (String.append &result "&lt;"))
+              (StringBuf.append-str &sb "&lt;")
               (= ch \>)
-              (set! result (String.append &result "&gt;"))
+              (StringBuf.append-str &sb "&gt;")
               (= ch \")
-              (set! result (String.append &result "&quot;"))
+              (StringBuf.append-str &sb "&quot;")
               (= ch \')
-              (set! result (String.append &result "&#39;"))
+              (StringBuf.append-str &sb "&#39;")
               ;'
-              (set! result (String.append &result &(str ch))))))
-        result)))
+              (StringBuf.append-str &sb &(str ch)))))
+        (StringBuf.to-string &sb))))
 
   (private to-str)
   (hidden to-str)

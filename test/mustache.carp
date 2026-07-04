@@ -319,4 +319,9 @@ End
   (assert-equal test
     ""
     &(template "{{a.b}}" &{@"a.b" (Mustache.Str @"ERROR")})
-    "a literal a.b map key is never matched by dotted {{a.b}} (name is split first)"))
+    "a literal a.b map key is never matched by dotted {{a.b}} (name is split first)")
+  (assert-equal test
+    &(String.repeat 4000 "a&amp;b&lt;c&gt;d&quot;e&#39;f")
+    &(template "{{ x }}"
+               &{@"x" (Mustache.Str (String.repeat 4000 "a&b<c>d\"e'f"))})
+    "escapes a large mixed input without quadratic blowup"))
