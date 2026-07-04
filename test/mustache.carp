@@ -307,4 +307,16 @@ End
   (assert-equal test
     ""
     &(template "{{a.b}}" &{@"a" (Mustache.Str @"plain")})
-    "dotted name into a non-map value renders empty"))
+    "dotted name into a non-map value renders empty")
+  (assert-equal test
+    ""
+    &(template "{{#a}}{{b.c}}{{/a}}"
+               &{@"a" (Mustache.Mp
+                   {@"b" (Box.init
+                      (Mustache.Mp (the (Map String (Box Mustache)) {})))})
+                 @"b" (Mustache.Mp {@"c" (Box.init (Mustache.Str @"ERROR"))})})
+    "context precedence: dotted head fixes to the section frame b (empty), not top-level b.c")
+  (assert-equal test
+    ""
+    &(template "{{a.b}}" &{@"a.b" (Mustache.Str @"ERROR")})
+    "a literal a.b map key is never matched by dotted {{a.b}} (name is split first)"))
