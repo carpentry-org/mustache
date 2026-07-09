@@ -42,8 +42,8 @@ kinds: strings, lists, nested maps, and lambdas.</p>
 ; =&gt; &quot;Hello, Ada Grace !&quot;
 </code></pre>
 <p>Supports comments, section iteration, inverted sections, object contexts,
-partials, and the set-delimiter tag. Templates are parsed into an intermediate
-node tree before rendering, so nested sections work correctly.</p>
+dotted names, partials, and the set-delimiter tag. Templates are parsed into an
+intermediate node tree before rendering, so nested sections work correctly.</p>
 <p>Templates are processed at byte level, which is correct for ASCII and UTF-8
 input as long as the delimiters themselves are ASCII.</p>
 
@@ -162,6 +162,12 @@ it pushes its entries onto the context for the section body.</li>
   &quot;this is a super {{ adjective }} library&quot;
   &amp;{@&quot;adjective&quot; (Mustache.Str @&quot;cool&quot;)})
 </code></pre>
+<p>Dotted names like <code>{{a.b.c}}</code> walk nested <code>Mp</code> values: the first segment is
+looked up on the context stack, then each further segment must be a key of the
+previous segment's map. This works in interpolation, sections, and inverted
+sections. If any segment is missing or is not a map, the name is treated as
+absent (renders empty / skips the section). A bare <code>{{.}}</code> remains the implicit
+iterator.</p>
 <p>Trimming: names inside mustache tags are trimmed, so <code>{{ thing }}</code> looks up
 <code>&quot;thing&quot;</code>. Opening and closing section markers must use consistent names,
 i.e. <code>{{/thing}}</code> is not a close for <code>{{^ thing }}</code>.</p>
