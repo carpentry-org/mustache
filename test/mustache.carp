@@ -53,6 +53,24 @@
       &{@"thing" (Mustache.Lambda (fn [x] (String.append &x "!")))})
     "simple sections with functions works")
   (assert-equal test
+    "value"
+    &(template "{{#wrap}}{{x}}{{/wrap}}"
+               &{@"wrap" (Mustache.Lambda (fn [s] s))
+                 @"x" (Mustache.Str @"value")})
+    "section lambda output is re-parsed and interpolated, not passed through")
+  (assert-equal test
+    "hi"
+    &(template "{{#wrap}}{{#b}}hi{{/b}}{{/wrap}}"
+               &{@"wrap" (Mustache.Lambda (fn [s] s))
+                 @"b" (Mustache.Str @"truthy")})
+    "section lambda output containing a section renders against the context")
+  (assert-equal test
+    "value"
+    &(template "{{=[ ]=}}[#wrap][x][/wrap]"
+               &{@"wrap" (Mustache.Lambda (fn [s] s))
+                 @"x" (Mustache.Str @"value")})
+    "section lambda output re-parses with the delimiters active at the section")
+  (assert-equal test
     "this is an "
     &(template
       "this is an {{{^ thing }}}inverted section{{/ thing }}"

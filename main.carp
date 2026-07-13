@@ -27,14 +27,15 @@ input as long as the delimiters themselves are ASCII.")
   (Mp [(Map String (Box Mustache))])
   (Lambda [(Fn [String] String)]))
 
-; Internal parse tree. `NSect` stores both the raw body text (needed to pass
-; to lambdas per the mustache spec) and the parsed body.
+; Internal parse tree. `NSect` stores the raw body text and the delimiters
+; active at the section tag (both needed to re-parse a lambda's output per the
+; mustache spec) alongside the parsed body.
 (hidden Node)
 (deftype Node
   (NLit [String])
   (NVar [String])
   (NRaw [String])
-  (NSect [String String (Array (Box Node))])
+  (NSect [String String String String (Array (Box Node))])
   (NInv [String (Array (Box Node))])
   (NPart [String]))
 
@@ -466,9 +467,12 @@ input as long as the delimiters themselves are ASCII.")
                                                               @(Pair.a ends))]
                                   (set! nodes
                                         (Array.push-back nodes
-                                                         (Box.init (Node.NSect @&name
-                                                                               raw-body
-                                                                               child-nodes))))
+                                                         (Box.init
+                                                           (Node.NSect @&name
+                                                                       raw-body
+                                                                       @&o
+                                                                       @&c
+                                                                       child-nodes))))
                                   (set! p @(Pair.b ends)))))
                             ; inverted section: {{^ name }}
                             (String.starts-with? &tag "^")
@@ -544,12 +548,16 @@ input as long as the delimiters themselves are ASCII.")
                               (set! p after-tag)))))))))))))
       (Pair.init nodes (Pair.init body-end after-end))))
 
+  (private parse-with-delims)
+  (hidden parse-with-delims)
+  (defn parse-with-delims [s open close]
+    (let [none (the (Maybe String) (Maybe.Nothing))
+          r (parse-body s 0 open close &none)]
+      @(Pair.a &r)))
+
   (private parse)
   (hidden parse)
-  (defn parse [s]
-    (let [none (the (Maybe String) (Maybe.Nothing))
-          r (parse-body s 0 "{{" "}}" &none)]
-      @(Pair.a &r)))
+  (defn parse [s] (parse-with-delims s "{{" "}}"))
 
   (private render-nodes)
   (hidden render-nodes)
@@ -574,6 +582,8 @@ input as long as the delimiters themselves are ASCII.")
          [(Ref Mustache)
           (Ref (Array (Box Node)))
           (Ref String)
+          (Ref String)
+          (Ref String)
           (Ref (Map String Mustache))
           (Ref (Array (Map String Mustache)))]
          String))
@@ -597,9 +607,10 @@ input as long as the delimiters themselves are ASCII.")
         (match (resolve-name user-ctx frames name)
           (Maybe.Just v) (to-str &v)
           (Maybe.Nothing) @"")
-      (Node.NSect name raw-body body)
+      (Node.NSect name raw-body open close body)
         (match (resolve-name user-ctx frames name)
-          (Maybe.Just v) (render-section &v body raw-body user-ctx frames)
+          (Maybe.Just v)
+            (render-section &v body raw-body open close user-ctx frames)
           (Maybe.Nothing) @"")
       (Node.NInv name body)
         (match (resolve-name user-ctx frames name)
@@ -615,11 +626,14 @@ input as long as the delimiters themselves are ASCII.")
               (let [sub-nodes (parse &contents)]
                 (render-nodes &sub-nodes user-ctx frames))))))
 
-  (defn render-section [v body raw-body user-ctx frames]
+  (defn render-section [v body raw-body open close user-ctx frames]
     (match-ref v
       (Mustache.Str s)
         (if (String.empty? s) @"" (render-nodes body user-ctx frames))
-      (Mustache.Lambda f) (~f @raw-body)
+      (Mustache.Lambda f)
+        (let [rendered (~f @raw-body)
+              new-nodes (parse-with-delims &rendered open close)]
+          (render-nodes &new-nodes user-ctx frames))
       (Mustache.Mp m)
         (let-do [_ (Array.push-back! frames (frame-from-mp m))
                  out (render-nodes body user-ctx frames)]
@@ -657,7 +671,9 @@ The map must be from `String` to `Mustache`. Values can be:
   object contexts.
 - `Mp` — a nested map of boxed `Mustache` values. Used as a section value,
   it pushes its entries onto the context for the section body.
-- `Lambda` — a function applied to the raw section body.
+- `Lambda` — a function applied to the raw (unrendered) section body. Its
+  return value is parsed as a Mustache template and rendered against the
+  current context, so tags the lambda emits are interpolated.
 
 Example:
 

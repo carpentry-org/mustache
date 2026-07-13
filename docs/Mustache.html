@@ -155,7 +155,9 @@ section, bare items are bound as <code>{{.}}</code> and <code>Mp</code> items pr
 object contexts.</li>
 <li><code>Mp</code> — a nested map of boxed <code>Mustache</code> values. Used as a section value,
 it pushes its entries onto the context for the section body.</li>
-<li><code>Lambda</code> — a function applied to the raw section body.</li>
+<li><code>Lambda</code> — a function applied to the raw (unrendered) section body. Its
+return value is parsed as a Mustache template and rendered against the
+current context, so tags the lambda emits are interpolated.</li>
 </ul>
 <p>Example:</p>
 <pre><code>(Mustache.template
