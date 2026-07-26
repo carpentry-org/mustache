@@ -259,13 +259,68 @@ End
 
 End
 " &{}) "standalone comment with surrounding blank lines preserves blanks")
+  ; partial indentation
   (assert-equal test "Begin
-hi, world!
+  hi, world!
 End
 " &(template "Begin
   {{> test/file }}
 End
-" &{@"name" (Mustache.Str @"world")}) "standalone partial strips its line")
+" &{@"name" (Mustache.Str @"world")}) "standalone partial is indented to the column of its tag")
+  (assert-equal test "\\
+ |
+ <
+->
+ |
+/
+" &(template "\\
+ {{> test/indent }}
+/
+" &{@"content" (Mustache.Str @"<
+->")}) "each line of the partial source is indented, interpolated values are not")
+  (assert-equal test "  |  >
+>
+" &(template "  {{data}}  {{> test/inline }}
+" &{@"data" (Mustache.Str @"|")}) "inline partial is not indented")
+  (assert-equal test
+    "| \t|\t |"
+    &(template "| {{> test/tabs }} |" &{})
+    "inline partial keeps the whitespace surrounding its tag")
+  (assert-equal test "  >
+  >@>" &(template "  {{> test/arrow }}
+>" &{}) "standalone partial without a previous line is indented")
+  (assert-equal test ">
+  >
+  >@" &(template ">
+  {{> test/arrow }}" &{}) "standalone partial without a trailing newline is indented")
+  (assert-equal test "start
+  |
+    a
+    b
+  |
+end
+" &(template "start
+  {{> test/nested-outer }}
+end
+" &{}) "nested standalone partials accumulate indentation")
+  (assert-equal test
+    "X<Y<>>"
+    &(template "{{> test/node }}"
+               &{@"content" (Mustache.Str @"X")
+                 @"nodes" (Mustache.Lst
+                   [(Box.init
+                      (Mustache.Mp
+                        {@"content" (Box.init (Mustache.Str @"Y"))
+                         @"nodes" (Box.init (Mustache.Lst []))}))])})
+    "recursive partials terminate and are not indented")
+  (assert-equal test "  hi, world!
+" &(template "{{# bool }}
+  {{> test/file }}
+{{/ bool }}
+" &{@"bool" (Mustache.Str @"true")
+    @"name" (Mustache.Str @"world")}) "standalone partial inside a section is indented")
+  (assert-equal test "hi, world!
+" &(template "{{=[ ]=}}[> test/file ]" &{@"name" (Mustache.Str @"world")}) "partial after a delimiter change is inline and keeps the default delimiters")
   ; dotted-name resolution
   (assert-equal test
     "Ada"

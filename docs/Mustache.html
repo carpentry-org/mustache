@@ -170,6 +170,10 @@ previous segment's map. This works in interpolation, sections, and inverted
 sections. If any segment is missing or is not a map, the name is treated as
 absent (renders empty / skips the section). A bare <code>{{.}}</code> remains the implicit
 iterator.</p>
+<p>A <code>{{&gt; name}}</code> partial that stands alone on its line has that line removed, and
+every line of <code>name.mustache</code> is indented to the tag's column before it is
+parsed. The indent applies to the partial's source, not to its rendered output,
+so newlines inside an interpolated value are not indented.</p>
 <p>Trimming: names inside mustache tags are trimmed, so <code>{{ thing }}</code> looks up
 <code>&quot;thing&quot;</code>. Opening and closing section markers must use consistent names,
 i.e. <code>{{/thing}}</code> is not a close for <code>{{^ thing }}</code>.</p>

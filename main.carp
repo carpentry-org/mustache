@@ -29,7 +29,8 @@ input as long as the delimiters themselves are ASCII.")
 
 ; Internal parse tree. `NSect` stores the raw body text and the delimiters
 ; active at the section tag (both needed to re-parse a lambda's output per the
-; mustache spec) alongside the parsed body.
+; mustache spec) alongside the parsed body. `NPart` stores the partial name and
+; the indentation of its standalone line, empty when the tag is not standalone.
 (hidden Node)
 (deftype Node
   (NLit [String])
@@ -37,7 +38,7 @@ input as long as the delimiters themselves are ASCII.")
   (NRaw [String])
   (NSect [String String String String (Array (Box Node))])
   (NInv [String (Array (Box Node))])
-  (NPart [String]))
+  (NPart [String String]))
 
 (defmodule Mustache
   (hidden copy)
@@ -306,6 +307,25 @@ input as long as the delimiters themselves are ASCII.")
                        (Box.init (Node.NLit (byte-slice s lit-start sa-b))))))
       (trim-last-nlit-ws nodes)))
 
+  ; A trailing newline ends the last line, so it gets no dangling indent.
+  (private indent-lines)
+  (hidden indent-lines)
+  (defn indent-lines [s indent]
+    (if (String.empty? indent)
+      @s
+      (let-do [sb (StringBuf.create)
+               len (String.length s)
+               start 0]
+        (while-do (< start len)
+          (let-do [i start]
+            (while-do (and (< i len) (/= \newline (String.char-at s i)))
+              (set! i (Int.inc i)))
+            (when (< i len) (set! i (Int.inc i)))
+            (StringBuf.append-str &sb indent)
+            (StringBuf.append-str &sb &(byte-slice s start i))
+            (set! start i)))
+        (StringBuf.to-string &sb))))
+
   ; parse-body returns (Pair nodes (Pair body-end after-tag))
   ; where body-end is the offset of the matching close tag's start
   ; and after-tag is the offset after the close tag. For top-level parses
@@ -429,12 +449,16 @@ input as long as the delimiters themselves are ASCII.")
                                        &(byte-slice &tag 1 (String.length &tag)))
                                      sa-b (standalone-before s next-open)
                                      sa-a (standalone-after s after-tag slen)
-                                     sa (and (>= sa-b 0) (>= sa-a 0))]
+                                     sa (and (>= sa-b 0) (>= sa-a 0))
+                                     indent (if sa
+                                       (byte-slice s sa-b next-open)
+                                       @"")]
                               (when sa
                                 (trim-sa-lit &nodes s lit-start sa-b next-open))
                               (set! nodes
                                     (Array.push-back nodes
-                                                     (Box.init (Node.NPart name))))
+                                                     (Box.init (Node.NPart name
+                                                                           indent))))
                               (set! p (if sa sa-a after-tag)))
                             ; section open: {{# name }}
                             (String.starts-with? &tag "#")
@@ -617,13 +641,14 @@ input as long as the delimiters themselves are ASCII.")
           (Maybe.Just v)
             (if (falsy? &v) (render-nodes body user-ctx frames) @"")
           (Maybe.Nothing) (render-nodes body user-ctx frames))
-      (Node.NPart name)
+      (Node.NPart name indent)
         (let [fname (format "%s.mustache" name)
               contents? (IO.read-file &fname)]
           (match contents?
             (Result.Error _) @""
             (Result.Success contents)
-              (let [sub-nodes (parse &contents)]
+              (let [source (indent-lines &contents indent)
+                    sub-nodes (parse &source)]
                 (render-nodes &sub-nodes user-ctx frames))))))
 
   (defn render-section [v body raw-body open close user-ctx frames]
@@ -689,6 +714,11 @@ previous segment's map. This works in interpolation, sections, and inverted
 sections. If any segment is missing or is not a map, the name is treated as
 absent (renders empty / skips the section). A bare `{{.}}` remains the implicit
 iterator.
+
+A `{{> name}}` partial that stands alone on its line has that line removed, and
+every line of `name.mustache` is indented to the tag's column before it is
+parsed. The indent applies to the partial's source, not to its rendered output,
+so newlines inside an interpolated value are not indented.
 
 Trimming: names inside mustache tags are trimmed, so `{{ thing }}` looks up
 `\"thing\"`. Opening and closing section markers must use consistent names,

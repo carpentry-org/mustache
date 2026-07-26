@@ -125,6 +125,25 @@ per the Mustache spec.
 `{{> name}}` loads `name.mustache` from disk and renders it with the
 current context. Missing files render as empty.
 
+A partial that stands alone on its line has that line removed, and every
+line of the partial's source is indented to the column the tag stood at
+before it is parsed:
+
+```clojure
+; item.mustache is "<li>{{name}}</li>\n"
+(Mustache.template
+  "<ul>
+  {{> item}}
+</ul>
+"
+  &{@"name" (Mustache.Str @"Ada")})
+; => "<ul>\n  <li>Ada</li>\n</ul>\n"
+```
+
+Because the indent is applied to the partial's source rather than to its
+rendered output, newlines inside an interpolated value are not indented.
+Nested partials accumulate indentation.
+
 ### Set delimiters
 
 `{{=< >=}}` changes the open/close delimiters for the rest of the
