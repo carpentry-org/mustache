@@ -320,8 +320,8 @@ input as long as the delimiters themselves are ASCII.")
           (let-do [i start]
             (while-do (and (< i len) (/= \newline (String.char-at s i)))
               (set! i (Int.inc i)))
+            (unless (= i start) (StringBuf.append-str &sb indent))
             (when (< i len) (set! i (Int.inc i)))
-            (StringBuf.append-str &sb indent)
             (StringBuf.append-str &sb &(byte-slice s start i))
             (set! start i)))
         (StringBuf.to-string &sb))))
@@ -716,9 +716,9 @@ absent (renders empty / skips the section). A bare `{{.}}` remains the implicit
 iterator.
 
 A `{{> name}}` partial that stands alone on its line has that line removed, and
-every line of `name.mustache` is indented to the tag's column before it is
-parsed. The indent applies to the partial's source, not to its rendered output,
-so newlines inside an interpolated value are not indented.
+every non-empty line of `name.mustache` is indented to the tag's column before
+it is parsed. The indent applies to the partial's source, not to its rendered
+output, so newlines inside an interpolated value are not indented.
 
 Trimming: names inside mustache tags are trimmed, so `{{ thing }}` looks up
 `\"thing\"`. Opening and closing section markers must use consistent names,

@@ -126,8 +126,8 @@ per the Mustache spec.
 current context. Missing files render as empty.
 
 A partial that stands alone on its line has that line removed, and every
-line of the partial's source is indented to the column the tag stood at
-before it is parsed:
+non-empty line of the partial's source is indented to the column the tag
+stood at before it is parsed:
 
 ```clojure
 ; item.mustache is "<li>{{name}}</li>\n"

@@ -267,6 +267,15 @@ End
   {{> test/file }}
 End
 " &{@"name" (Mustache.Str @"world")}) "standalone partial is indented to the column of its tag")
+  (assert-equal test "X
+  a
+
+  b
+Y
+" &(template "X
+  {{> test/blank-line }}
+Y
+" &{}) "empty lines in an indented partial are not given the indent")
   (assert-equal test "\\
  |
  <
