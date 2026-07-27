@@ -42,8 +42,9 @@ kinds: strings, lists, nested maps, and lambdas.</p>
 ; =&gt; &quot;Hello, Ada Grace !&quot;
 </code></pre>
 <p>Supports comments, section iteration, inverted sections, object contexts,
-dotted names, partials, and the set-delimiter tag. Templates are parsed into an
-intermediate node tree before rendering, so nested sections work correctly.</p>
+dotted names, partials, inheritance (parent and block tags), and the
+set-delimiter tag. Templates are parsed into an intermediate node tree before
+rendering, so nested sections work correctly.</p>
 <p>Templates are processed at byte level, which is correct for ASCII and UTF-8
 input as long as the delimiters themselves are ASCII.</p>
 
@@ -174,6 +175,13 @@ iterator.</p>
 every non-empty line of <code>name.mustache</code> is indented to the tag's column before
 it is parsed. The indent applies to the partial's source, not to its rendered
 output, so newlines inside an interpolated value are not indented.</p>
+<p>A <code>{{$name}}default{{/name}}</code> block marks a spot that can be filled in from
+elsewhere; on its own it renders <code>default</code>. A <code>{{&lt;name}}...{{/name}}</code> parent
+injects <code>name.mustache</code> like a partial, but the blocks written directly inside
+it replace the same-named blocks of the injected template. Everything else
+inside a parent tag is ignored. Overrides stay in scope for partials and
+further parents encountered while rendering, and when the same name is
+overridden at several levels the outermost one wins.</p>
 <p>Trimming: names inside mustache tags are trimmed, so <code>{{ thing }}</code> looks up
 <code>&quot;thing&quot;</code>. Opening and closing section markers must use consistent names,
 i.e. <code>{{/thing}}</code> is not a close for <code>{{^ thing }}</code>.</p>
