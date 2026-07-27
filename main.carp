@@ -16,8 +16,9 @@ kinds: strings, lists, nested maps, and lambdas.
 ```
 
 Supports comments, section iteration, inverted sections, object contexts,
-dotted names, partials, and the set-delimiter tag. Templates are parsed into an
-intermediate node tree before rendering, so nested sections work correctly.
+dotted names, partials, inheritance (parent and block tags), and the
+set-delimiter tag. Templates are parsed into an intermediate node tree before
+rendering, so nested sections work correctly.
 
 Templates are processed at byte level, which is correct for ASCII and UTF-8
 input as long as the delimiters themselves are ASCII.")
@@ -31,6 +32,9 @@ input as long as the delimiters themselves are ASCII.")
 ; active at the section tag (both needed to re-parse a lambda's output per the
 ; mustache spec) alongside the parsed body. `NPart` stores the partial name and
 ; the indentation of its standalone line, empty when the tag is not standalone.
+; `NParent` stores the parent name, its standalone indentation, and the blocks
+; it passes as overrides; `NBlock` the block name, the indentation its content
+; is expanded at, and the default body.
 (hidden Node)
 (deftype Node
   (NLit [String])
@@ -38,7 +42,9 @@ input as long as the delimiters themselves are ASCII.")
   (NRaw [String])
   (NSect [String String String String (Array (Box Node))])
   (NInv [String (Array (Box Node))])
-  (NPart [String String]))
+  (NPart [String String])
+  (NParent [String String (Array (Box Node))])
+  (NBlock [String String (Array (Box Node))]))
 
 (defmodule Mustache
   (hidden copy)
@@ -326,17 +332,90 @@ input as long as the delimiters themselves are ASCII.")
             (set! start i)))
         (StringBuf.to-string &sb))))
 
+  ; Shortest leading whitespace run among the non-blank lines of `s`.
+  (private common-indent)
+  (hidden common-indent)
+  (defn common-indent [s]
+    (let-do [slen (String.length s)
+             i 0
+             best -1
+             best-at 0]
+      (while-do (< i slen)
+        (let-do [j i]
+          (while-do (and (< j slen)
+                         (let [ch (String.char-at s j)]
+                           (or (= ch \space) (= ch \tab))))
+            (set! j (Int.inc j)))
+          (when-do (and (< j slen) (/= \newline (String.char-at s j)))
+            (when-do (or (< best 0) (< (- j i) best))
+              (set! best (- j i))
+              (set! best-at i)))
+          (while-do (and (< j slen) (/= \newline (String.char-at s j)))
+            (set! j (Int.inc j)))
+          (set! i (if (< j slen) (Int.inc j) slen))))
+      (if (< best 0) @"" (byte-slice s best-at (+ best-at best)))))
+
+  ; Drop up to `n` leading horizontal-whitespace characters from every line.
+  (private strip-indent)
+  (hidden strip-indent)
+  (defn strip-indent [s n]
+    (if (= 0 n)
+      @s
+      (let-do [sb (StringBuf.create)
+               slen (String.length s)
+               i 0]
+        (while-do (< i slen)
+          (let-do [j i
+                   k 0]
+            (while-do (and (< j slen)
+                           (< k n)
+                           (let [ch (String.char-at s j)]
+                             (or (= ch \space) (= ch \tab))))
+              (set! j (Int.inc j))
+              (set! k (Int.inc k)))
+            (let-do [e j]
+              (while-do (and (< e slen) (/= \newline (String.char-at s e)))
+                (set! e (Int.inc e)))
+              (when (< e slen) (set! e (Int.inc e)))
+              (StringBuf.append-str &sb &(byte-slice s j e))
+              (set! i e))))
+        (StringBuf.to-string &sb))))
+
+  ; Offset after the line holding the close tag that opens at `pos`, or -1 when
+  ; something other than whitespace follows it on that line.
+  (private close-line-end)
+  (hidden close-line-end)
+  (defn close-line-end [s pos close slen c-len c-first]
+    (let [nc (find-str-from s close pos slen c-len c-first)]
+      (if (= nc -1) -1 (standalone-after s (+ nc c-len) slen))))
+
+  (private blocks-only)
+  (hidden blocks-only)
+  (defn blocks-only [ns]
+    (let-do [out (the (Array (Box Node)) [])]
+      (for [i 0 (Array.length ns)]
+        (let [n (Box.peek (Array.unsafe-nth ns i))]
+          (match-ref n
+            (Node.NBlock _ _ _)
+              (set! out (Array.push-back out @(Array.unsafe-nth ns i)))
+            _ ())))
+      out))
+
   ; parse-body returns (Pair nodes (Pair body-end after-tag))
   ; where body-end is the offset of the matching close tag's start
   ; and after-tag is the offset after the close tag. For top-level parses
   ; (section-name = Nothing), both equal the string length.
   (private parse-body)
   (hidden parse-body)
+  (private parse-with-delims)
+  (hidden parse-with-delims)
+  (sig parse-with-delims
+       (Fn [(Ref String) (Ref String) (Ref String)] (Array (Box Node))))
   (sig parse-body
        (Fn
-         [(Ref String) Int (Ref String) (Ref String) (Ref (Maybe String))]
+         [(Ref String) Int (Ref String) (Ref String) (Ref (Maybe String)) Bool]
          (Pair (Array (Box Node)) (Pair Int Int))))
-  (defn parse-body [s pos open close section-name]
+  (defn parse-body [s pos open close section-name in-parent]
     (let-do [nodes (the (Array (Box Node)) [])
              o @open
              c @close
@@ -472,7 +551,8 @@ input as long as the delimiters themselves are ASCII.")
                                                        body-start
                                                        &o
                                                        &c
-                                                       &(Maybe.Just @&name))
+                                                       &(Maybe.Just @&name)
+                                                       false)
                                      child-nodes @(Pair.a &child)
                                      ends (Pair.b &child)]
                               (when sa
@@ -510,7 +590,8 @@ input as long as the delimiters themselves are ASCII.")
                                                        body-start
                                                        &o
                                                        &c
-                                                       &(Maybe.Just @&name))
+                                                       &(Maybe.Just @&name)
+                                                       false)
                                      child-nodes @(Pair.a &child)
                                      ends (Pair.b &child)]
                               (when sa
@@ -528,6 +609,107 @@ input as long as the delimiters themselves are ASCII.")
                                         (Array.push-back nodes
                                                          (Box.init (Node.NInv @&name
                                                                               child-nodes))))
+                                  (set! p @(Pair.b ends)))))
+                            ; parent: {{< name }}
+                            (String.starts-with? &tag "<")
+                            (let-do [name (fast-trim
+                                       &(byte-slice &tag 1 (String.length &tag)))
+                                     sa-b (standalone-before s next-open)
+                                     child (parse-body s
+                                                       after-tag
+                                                       &o
+                                                       &c
+                                                       &(Maybe.Just @&name)
+                                                       true)
+                                     ends (Pair.b &child)
+                                     terminated (/= @(Pair.a ends) slen)
+                                     close-end (if terminated
+                                       (close-line-end s
+                                                       @(Pair.a ends)
+                                                       &c
+                                                       slen
+                                                       c-len
+                                                       c-first)
+                                       -1)
+                                     sa (and (>= sa-b 0) (>= close-end 0))
+                                     indent (if sa
+                                       (byte-slice s sa-b next-open)
+                                       @"")]
+                              (when sa
+                                (trim-sa-lit &nodes s lit-start sa-b next-open))
+                              (when terminated
+                                (set! nodes
+                                      (Array.push-back nodes
+                                                       (Box.init
+                                                         (Node.NParent @&name
+                                                                       @&indent
+                                                                       (blocks-only (Pair.a &child)))))))
+                              (set! p
+                                    (if (and terminated sa)
+                                      close-end
+                                      @(Pair.b ends))))
+                            ; block: {{$ name }}
+                            (String.starts-with? &tag "$")
+                            (let-do [name (fast-trim
+                                       &(byte-slice &tag 1 (String.length &tag)))
+                                     sa-b (standalone-before s next-open)
+                                     open-nl (standalone-after s after-tag slen)
+                                     line-open (and (>= sa-b 0) (>= open-nl 0))
+                                     body-start (if (and (>= open-nl 0)
+                                                         (or in-parent line-open))
+                                       open-nl
+                                       after-tag)
+                                     child (parse-body s
+                                                       body-start
+                                                       &o
+                                                       &c
+                                                       &(Maybe.Just @&name)
+                                                       false)
+                                     ends (Pair.b &child)
+                                     body-end @(Pair.a ends)
+                                     tag-indent (if (>= sa-b 0)
+                                       (byte-slice s sa-b next-open)
+                                       @"")]
+                              (when (>= sa-b 0)
+                                (trim-sa-lit &nodes s lit-start sa-b next-open))
+                              (if (= body-end slen)
+                                (do
+                                  (for [i 0 (Array.length (Pair.a &child))]
+                                    (set! nodes
+                                          (Array.push-back nodes
+                                                           @(Array.unsafe-nth (Pair.a &child)
+                                                                              i))))
+                                  (set! p @(Pair.b ends)))
+                                (let-do [ws-start (standalone-before s body-end)
+                                         raw (byte-slice s
+                                                         body-start
+                                                         (if (>= ws-start 0)
+                                                           ws-start
+                                                           body-end))
+                                         blank (String.empty? &(fast-trim &raw))
+                                         reindent (and (not blank)
+                                                       (or line-open
+                                                           (and in-parent
+                                                                (>= open-nl 0))))
+                                         ind (if reindent
+                                           (common-indent &raw)
+                                           @"")
+                                         body (if reindent
+                                           (parse-with-delims
+                                             &(strip-indent &raw
+                                                            (String.length &ind))
+                                             &o
+                                             &c)
+                                           @(Pair.a &child))
+                                         expand-at (cond
+                                           in-parent @""
+                                           (and line-open (not blank)) @&ind
+                                           @&tag-indent)]
+                                  (set! nodes
+                                        (Array.push-back nodes
+                                                         (Box.init (Node.NBlock @&name
+                                                                                expand-at
+                                                                                body))))
                                   (set! p @(Pair.b ends)))))
                             ; section close: {{/ name }}
                             (String.starts-with? &tag "/")
@@ -572,16 +754,39 @@ input as long as the delimiters themselves are ASCII.")
                               (set! p after-tag)))))))))))))
       (Pair.init nodes (Pair.init body-end after-end))))
 
-  (private parse-with-delims)
-  (hidden parse-with-delims)
   (defn parse-with-delims [s open close]
     (let [none (the (Maybe String) (Maybe.Nothing))
-          r (parse-body s 0 open close &none)]
+          r (parse-body s 0 open close &none false)]
       @(Pair.a &r)))
 
   (private parse)
   (hidden parse)
   (defn parse [s] (parse-with-delims s "{{" "}}"))
+
+  ; Searched outermost-first: a substitution made higher up wins.
+  (private override-body)
+  (hidden override-body)
+  (sig override-body
+       (Fn
+         [(Ref (Array (Array (Box Node)))) (Ref String)]
+         (Maybe (Array (Box Node)))))
+  (defn override-body [overrides name]
+    (let-do [found (the (Maybe (Array (Box Node))) (Maybe.Nothing))
+             n (Array.length overrides)
+             i 0]
+      (while-do (and (< i n) (Maybe.nothing? &found))
+        (let-do [frame (Array.unsafe-nth overrides i)
+                 m (Array.length frame)
+                 j 0]
+          (while-do (and (< j m) (Maybe.nothing? &found))
+            (let [node (Box.peek (Array.unsafe-nth frame j))]
+              (match-ref node
+                (Node.NBlock bname _ body)
+                  (when (String.= bname name) (set! found (Maybe.Just @body)))
+                _ ()))
+            (set! j (Int.inc j))))
+        (set! i (Int.inc i)))
+      found))
 
   (private render-nodes)
   (hidden render-nodes)
@@ -593,13 +798,15 @@ input as long as the delimiters themselves are ASCII.")
        (Fn
          [(Ref (Array (Box Node)))
           (Ref (Map String Mustache))
-          (Ref (Array (Map String Mustache)))]
+          (Ref (Array (Map String Mustache)))
+          (Ref (Array (Array (Box Node))))]
          String))
   (sig render-node
        (Fn
          [(Ref Node)
           (Ref (Map String Mustache))
-          (Ref (Array (Map String Mustache)))]
+          (Ref (Array (Map String Mustache)))
+          (Ref (Array (Array (Box Node))))]
          String))
   (sig render-section
        (Fn
@@ -609,18 +816,19 @@ input as long as the delimiters themselves are ASCII.")
           (Ref String)
           (Ref String)
           (Ref (Map String Mustache))
-          (Ref (Array (Map String Mustache)))]
+          (Ref (Array (Map String Mustache)))
+          (Ref (Array (Array (Box Node))))]
          String))
 
-  (defn render-nodes [nodes user-ctx frames]
+  (defn render-nodes [nodes user-ctx frames overrides]
     (let-do [sb (StringBuf.create)]
       (for [i 0 (Array.length nodes)]
         (let [n (Box.peek (Array.unsafe-nth nodes i))
-              piece (render-node n user-ctx frames)]
+              piece (render-node n user-ctx frames overrides)]
           (StringBuf.append-str &sb &piece)))
       (StringBuf.to-string &sb)))
 
-  (defn render-node [n user-ctx frames]
+  (defn render-node [n user-ctx frames overrides]
     (match-ref n
       (Node.NLit s) @s
       (Node.NVar name)
@@ -634,13 +842,20 @@ input as long as the delimiters themselves are ASCII.")
       (Node.NSect name raw-body open close body)
         (match (resolve-name user-ctx frames name)
           (Maybe.Just v)
-            (render-section &v body raw-body open close user-ctx frames)
+            (render-section &v
+                            body
+                            raw-body
+                            open
+                            close
+                            user-ctx
+                            frames
+                            overrides)
           (Maybe.Nothing) @"")
       (Node.NInv name body)
         (match (resolve-name user-ctx frames name)
           (Maybe.Just v)
-            (if (falsy? &v) (render-nodes body user-ctx frames) @"")
-          (Maybe.Nothing) (render-nodes body user-ctx frames))
+            (if (falsy? &v) (render-nodes body user-ctx frames overrides) @"")
+          (Maybe.Nothing) (render-nodes body user-ctx frames overrides))
       (Node.NPart name indent)
         (let [fname (format "%s.mustache" name)
               contents? (IO.read-file &fname)]
@@ -649,19 +864,36 @@ input as long as the delimiters themselves are ASCII.")
             (Result.Success contents)
               (let [source (indent-lines &contents indent)
                     sub-nodes (parse &source)]
-                (render-nodes &sub-nodes user-ctx frames))))))
+                (render-nodes &sub-nodes user-ctx frames overrides))))
+      (Node.NParent name indent children)
+        (let [fname (format "%s.mustache" name)
+              contents? (IO.read-file &fname)]
+          (match contents?
+            (Result.Error _) @""
+            (Result.Success contents)
+              (let-do [source (indent-lines &contents indent)
+                       sub-nodes (parse &source)]
+                (Array.push-back! overrides @children)
+                (let-do [out (render-nodes &sub-nodes user-ctx frames overrides)]
+                  (ignore (Array.pop-back! overrides))
+                  out))))
+      (Node.NBlock name indent body)
+        (let [out (match (override-body overrides name)
+                (Maybe.Just ov) (render-nodes &ov user-ctx frames overrides)
+                (Maybe.Nothing) (render-nodes body user-ctx frames overrides))]
+          (indent-lines &out indent))))
 
-  (defn render-section [v body raw-body open close user-ctx frames]
+  (defn render-section [v body raw-body open close user-ctx frames overrides]
     (match-ref v
       (Mustache.Str s)
-        (if (String.empty? s) @"" (render-nodes body user-ctx frames))
+        (if (String.empty? s) @"" (render-nodes body user-ctx frames overrides))
       (Mustache.Lambda f)
         (let [rendered (~f @raw-body)
               new-nodes (parse-with-delims &rendered open close)]
-          (render-nodes &new-nodes user-ctx frames))
+          (render-nodes &new-nodes user-ctx frames overrides))
       (Mustache.Mp m)
         (let-do [_ (Array.push-back! frames (frame-from-mp m))
-                 out (render-nodes body user-ctx frames)]
+                 out (render-nodes body user-ctx frames overrides)]
           (ignore (Array.pop-back! frames))
           out)
       (Mustache.Lst items)
@@ -673,14 +905,20 @@ input as long as the delimiters themselves are ASCII.")
                   (do
                     (Array.push-back! frames (frame-from-mp m))
                     (StringBuf.append-str &sb
-                                          &(render-nodes body user-ctx frames))
+                                          &(render-nodes body
+                                                         user-ctx
+                                                         frames
+                                                         overrides))
                     (ignore (Array.pop-back! frames)))
                 _
                   (let-do [empty-f (the (Map String Mustache) {})
                            dot-frame (Map.put empty-f "." item)]
                     (Array.push-back! frames dot-frame)
                     (StringBuf.append-str &sb
-                                          &(render-nodes body user-ctx frames))
+                                          &(render-nodes body
+                                                         user-ctx
+                                                         frames
+                                                         overrides))
                     (ignore (Array.pop-back! frames))))))
           (StringBuf.to-string &sb))))
 
@@ -720,10 +958,19 @@ every non-empty line of `name.mustache` is indented to the tag's column before
 it is parsed. The indent applies to the partial's source, not to its rendered
 output, so newlines inside an interpolated value are not indented.
 
+A `{{$name}}default{{/name}}` block marks a spot that can be filled in from
+elsewhere; on its own it renders `default`. A `{{<name}}...{{/name}}` parent
+injects `name.mustache` like a partial, but the blocks written directly inside
+it replace the same-named blocks of the injected template. Everything else
+inside a parent tag is ignored. Overrides stay in scope for partials and
+further parents encountered while rendering, and when the same name is
+overridden at several levels the outermost one wins.
+
 Trimming: names inside mustache tags are trimmed, so `{{ thing }}` looks up
 `\"thing\"`. Opening and closing section markers must use consistent names,
 i.e. `{{/thing}}` is not a close for `{{^ thing }}`.")
   (defn template [s values]
     (let-do [nodes (parse s)
-             frames (the (Array (Map String Mustache)) [])]
-      (render-nodes &nodes values &frames))))
+             frames (the (Array (Map String Mustache)) [])
+             overrides (the (Array (Array (Box Node))) [])]
+      (render-nodes &nodes values &frames &overrides))))

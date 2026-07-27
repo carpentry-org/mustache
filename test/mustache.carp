@@ -406,4 +406,156 @@ end
     &(String.repeat 4000 "a&amp;b&lt;c&gt;d&quot;e&#39;f")
     &(template "{{ x }}"
                &{@"x" (Mustache.Str (String.repeat 4000 "a&b<c>d\"e'f"))})
-    "escapes a large mixed input without quadratic blowup"))
+    "escapes a large mixed input without quadratic blowup")
+  ; inheritance: block and parent tags
+  (assert-equal test "Default title
+" &(template "{{$title}}Default title{{/title}}
+" &{}) "a block outside a parent renders its default")
+  (assert-equal test "default baz content
+" &(template "{{$foo}}default {{bar}} content{{/foo}}
+" &{@"bar" (Mustache.Str @"baz")}) "default block content interpolates variables")
+  (assert-equal test "default <baz> content
+" &(template "{{$foo}}default {{{bar}}} content{{/foo}}
+" &{@"bar" (Mustache.Str @"<baz>")}) "default block content interpolates triple mustaches")
+  (assert-equal test "default qux content
+" &(template "{{$foo}}default {{#bar}}{{baz}}{{/bar}} content{{/foo}}
+" &{@"bar" (Mustache.Mp {@"baz" (Box.init (Mustache.Str @"qux"))})}) "default block content renders sections")
+  (assert-equal test "default three content
+" &(template "{{$foo}}default {{^bar}}{{baz}}{{/bar}} content{{/foo}}
+" &{@"baz" (Mustache.Str @"three")}) "default block content renders inverted sections")
+  (assert-equal test "default {{qux}} content
+" &(template "{{$foo}}default {{#bar}}{{baz}}{{/bar}} content{{/foo}}
+" &{@"bar" (Mustache.Mp {@"baz" (Box.init (Mustache.Str @"{{qux}}"))})}) "a value interpolated in default block content is not re-parsed")
+  (assert-equal test
+    "default content"
+    &(template "{{<test/inh-include}}{{/test/inh-include}}
+" &{})
+    "an unparameterised parent renders the blocks of the injected template")
+  (assert-equal test
+    "...sub template title..."
+    &(template
+      "{{<test/inh-super}}{{$title}}sub template title{{/title}}{{/test/inh-super}}"
+      &{})
+    "a block inside a parent overrides the parent's default")
+  (assert-equal test
+    "var in template"
+    &(template
+      "{{<test/inh-var}}{{$var}}var in template{{/var}}{{/test/inh-var}}"
+      &{@"var" (Mustache.Str @"var in data")})
+    "the context does not override an argument passed into a parent")
+  (assert-equal test
+    "var in include"
+    &(template "{{<test/inh-var}}{{/test/inh-var}}"
+               &{@"var" (Mustache.Str @"var in data")})
+    "the context does not override a block default")
+  (assert-equal test
+    "test override"
+    &(template
+      "test {{<test/inh-parent}}{{$stuff}}override{{/stuff}}{{/test/inh-parent}}"
+      &{})
+    "an inline parent renders in place")
+  (assert-equal test "test |override1 default| |override2 default|
+" &(template
+      "test {{<test/inh-two-parents}}{{$stuff}}override1{{/stuff}}{{/test/inh-two-parents}} {{<test/inh-two-parents}}{{$stuff}}override2{{/stuff}}{{/test/inh-two-parents}}
+"
+      &{}) "two parents of the same template take different overrides")
+  (assert-equal test "peaked
+
+:(
+" &(template "{{<test/inh-ballmer}}{{$ballmer}}
+peaked
+
+:(
+{{/ballmer}}{{/test/inh-ballmer}}" &{}) "an override whose open tag ends its line drops that newline")
+  (assert-equal test "stop:
+  hammer time
+" &(template
+      "{{<test/inh-nineties}}{{$nineties}}hammer time{{/nineties}}{{/test/inh-nineties}}"
+      &{}) "an override inherits the indentation of the block it replaces")
+  (assert-equal test
+    "new default one, override two"
+    &(template
+      "{{<test/inh-two-params}}{{$stuff2}}override two{{/stuff2}}{{/test/inh-two-params}}"
+      &{})
+    "blocks left unoverridden keep their defaults")
+  (assert-equal test
+    "default content|default content"
+    &(template
+      "{{>test/inh-include}}|{{<test/inh-include}}{{/test/inh-include}}"
+      &{})
+    "a parent with no arguments behaves like a partial")
+  (assert-equal test
+    "override override override don't recurse"
+    &(template "{{<test/inh-rec}}{{$foo}}override{{/foo}}{{/test/inh-rec}}" &{})
+    "mutually recursive parents terminate on an override")
+  (assert-equal test
+    "c"
+    &(template "{{<test/inh-ml-parent}}{{$a}}c{{/a}}{{/test/inh-ml-parent}}" &{})
+    "the outermost override wins in multi-level inheritance")
+  (assert-equal test
+    "p"
+    &(template "{{<test/inh-ml-parent}}{{/test/inh-ml-parent}}" &{})
+    "multi-level inheritance falls back to the nearest override")
+  (assert-equal test
+    "hmm"
+    &(template
+      "{{<test/inh-include}} asdfasd {{$foo}}hmm{{/foo}} asdfasdfasdf {{/test/inh-include}}"
+      &{})
+    "text around blocks inside a parent is ignored")
+  (assert-equal test
+    "default content"
+    &(template
+      "{{<test/inh-include}} asdfasd asdfasdfasdf {{/test/inh-include}}"
+      &{})
+    "a parent holding only text passes no arguments")
+  (assert-equal test
+    "I say bananas."
+    &(template
+      "{{<test/inh-scope}}{{$block}}I say {{fruit}}.{{/block}}{{/test/inh-scope}}"
+      &{@"fruit" (Mustache.Str @"apples")
+        @"nested" (Mustache.Mp {@"fruit" (Box.init (Mustache.Str @"bananas"))})})
+    "an override renders against the context at the block it replaces")
+  (assert-equal test "Hi,
+  one
+  two
+" &(template "Hi,
+  {{<test/inh-lines}}{{/test/inh-lines}}
+" &{}) "a parent whose tags share one line is standalone and indented")
+  (assert-equal test "Hi,
+  one
+  two
+" &(template "{{<test/inh-sa-block}}{{$block}}
+one
+two{{/block}}
+{{/test/inh-sa-block}}
+" &{}) "a block whose tags share one line is standalone and indented")
+  (assert-equal test "Hi,
+  one
+  two
+" &(template "{{<test/inh-reindent}}{{$block}}
+    one
+    two
+{{/block}}{{/test/inh-reindent}}
+" &{}) "an override is dedented where it is written and indented where it expands")
+  (assert-equal test "Hi,
+  one
+  two
+" &(template "{{<test/inh-intrinsic}}{{$block}}
+one
+two
+{{/block}}{{/test/inh-intrinsic}}
+" &{}) "a standalone block takes its indentation from its default content")
+  (assert-equal test "one
+  three
+" &(template "{{<test/inh-nested}}{{$nested}}
+three
+{{/nested}}{{/test/inh-nested}}
+" &{}) "a nested block is reindented relative to the block around it")
+  (assert-equal test
+    "[]"
+    &(template "[{{<no_such_parent}}{{$x}}y{{/x}}{{/no_such_parent}}]" &{})
+    "a parent naming a missing file renders as empty")
+  (assert-equal test
+    "P:over"
+    &(template "{{<test/inh-thru}}{{$b}}over{{/b}}{{/test/inh-thru}}" &{})
+    "overrides stay in scope for partials the parent pulls in"))

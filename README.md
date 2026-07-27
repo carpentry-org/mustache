@@ -4,7 +4,7 @@ A [Mustache](https://mustache.github.io) templating library for Carp.
 
 Supports the full spec: variables, HTML-escaped and unescaped output,
 sections, inverted sections, object and list contexts, dotted names,
-lambdas, partials, comments, and set-delimiter tags.
+lambdas, partials, inheritance, comments, and set-delimiter tags.
 
 ## Installing
 
@@ -143,6 +143,43 @@ stood at before it is parsed:
 Because the indent is applied to the partial's source rather than to its
 rendered output, newlines inside an interpolated value are not indented.
 Nested partials accumulate indentation.
+
+### Inheritance
+
+`{{$name}}default{{/name}}` is a block: a named spot in a template that
+can be filled in from elsewhere. On its own it renders its default body.
+
+`{{<name}}…{{/name}}` is a parent: it injects `name.mustache` just like a
+partial, except that the blocks written directly inside it replace the
+same-named blocks of the injected template. Any other content inside a
+parent tag is ignored.
+
+```clojure
+; page.mustache is "<h1>{{$title}}Untitled{{/title}}</h1>\n"
+(Mustache.template
+  "{{<page}}{{$title}}Hello{{/title}}{{/page}}"
+  &{})
+; => "<h1>Hello</h1>\n"
+```
+
+Block names live in their own namespace: they are never looked up in the
+context, and a context entry of the same name does not override a block.
+
+Overrides stay in scope for partials and further parent tags encountered
+while rendering, so a layout can be refined in several steps. When the
+same name is overridden at more than one level, the outermost override
+wins:
+
+```clojure
+; base.mustache   is "{{$a}}base{{/a}}"
+; middle.mustache is "{{<base}}{{$a}}middle{{/a}}{{/base}}"
+(Mustache.template "{{<middle}}{{$a}}top{{/a}}{{/middle}}" &{})
+; => "top"
+```
+
+A parent or block whose opening and closing tags sit on a line of their
+own — they need not be on separate lines — has that line removed, and its
+content is reindented to the column the tag stood at.
 
 ### Set delimiters
 
