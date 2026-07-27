@@ -23,8 +23,9 @@ context. The `Mustache` sumtype has four value kinds:
 - `Mp` — a `(Map String (Box Mustache))`. Used as a section value it
   pushes its entries onto the context for the section body; outer
   bindings still fall through.
-- `Lambda` — a `(Fn [String] String)` applied to the raw section body; its
-  result is re-parsed and rendered as a template.
+- `Lambda` — a `(Fn [String] String)` applied to the raw section body, or
+  to the empty string in an interpolation tag; its result is re-parsed and
+  rendered as a template.
 
 ### Variable substitution
 
@@ -119,6 +120,22 @@ interpolated:
 
 The output is re-parsed with the delimiters in effect at the section tag,
 per the Mustache spec.
+
+A lambda used in an interpolation tag is called with the empty string, since
+the spec gives interpolation lambdas no argument:
+
+```clojure
+(Mustache.template
+  "Hello, {{ lambda }}!"
+  &{@"lambda" (Mustache.Lambda (fn [_] @"{{ planet }}"))
+    @"planet" (Mustache.Str @"world")})
+; => "Hello, world!"
+```
+
+Here the output is re-parsed with the default delimiters, not the ones in
+effect at the tag, and the lambda is called again for every occurrence. What
+it renders to is escaped for `{{ lambda }}` and left alone for
+`{{{ lambda }}}`.
 
 ### Partials
 
