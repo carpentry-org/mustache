@@ -189,6 +189,9 @@ overridden at several levels the outermost one wins.</p>
 <p>Trimming: names inside mustache tags are trimmed, so <code>{{ thing }}</code> looks up
 <code>&quot;thing&quot;</code>. Opening and closing section markers must use consistent names,
 i.e. <code>{{/thing}}</code> is not a close for <code>{{^ thing }}</code>.</p>
+<p>Rendering nests at most 128 levels deep; anything below that renders as the
+empty string, the same as a partial naming a missing file. A partial, parent or
+lambda that includes itself therefore truncates instead of recursing forever.</p>
 
                     </p>
                 </div>

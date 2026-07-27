@@ -217,6 +217,11 @@ template (or section body):
   `{{/thing}}` does not close `{{^ thing }}`.
 - Templates are processed at byte level, which is correct for ASCII and
   UTF-8 input as long as the delimiters themselves are ASCII.
+- Rendering nests at most 128 levels deep; anything below that renders as
+  the empty string, like a partial naming a missing file. A partial,
+  parent or lambda that pulls itself back in truncates there instead of
+  recursing forever. Recursion that terminates on the data running out,
+  as in the spec's recursive-partial case, is unaffected.
 
 <hr/>
 

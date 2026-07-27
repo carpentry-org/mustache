@@ -8,6 +8,20 @@
 (sig count-call (Fn [String] String))
 (defn count-call [_] (do (set! *calls* (Int.inc *calls*)) (str *calls*)))
 
+(sig emit-own-section (Fn [String] String))
+(defn emit-own-section [body] (fmt "s{{#x}}%s{{/x}}" &body))
+
+(sig emit-own-tag (Fn [String] String))
+(defn emit-own-tag [_] @"i{{x}}")
+
+(sig nest-sections (Fn [Int] String))
+(defn nest-sections [n]
+  (let-do [sb (StringBuf.create)]
+    (for [i 0 n] (StringBuf.append-str &sb "{{#a}}"))
+    (StringBuf.append-str &sb "deep")
+    (for [i 0 n] (StringBuf.append-str &sb "{{/a}}"))
+    (StringBuf.to-string &sb)))
+
 (deftest test
   (assert-equal test
     "this is a strawberry"
@@ -604,4 +618,30 @@ three
   (assert-equal test
     "P:over"
     &(template "{{<test/inh-thru}}{{$b}}over{{/b}}{{/test/inh-thru}}" &{})
-    "overrides stay in scope for partials the parent pulls in"))
+    "overrides stay in scope for partials the parent pulls in")
+  ; recursion depth limit
+  (assert-equal test
+    127
+    (String.length &(template "{{>test/rec-self}}" &{}))
+    "a self-referencing partial stops at the depth limit")
+  (assert-equal test
+    127
+    (String.length &(template "{{>test/rec-a}}" &{}))
+    "mutually recursive partials stop at the depth limit")
+  (assert-equal test
+    127
+    (String.length &(template "{{<test/rec-pself}}{{/test/rec-pself}}" &{}))
+    "a self-referencing parent stops at the depth limit")
+  (assert-equal test
+    127
+    (String.length
+      &(template "{{#x}}b{{/x}}" &{@"x" (Mustache.Lambda emit-own-section)}))
+    "a section lambda re-emitting its own section stops at the depth limit")
+  (assert-equal test
+    127
+    (String.length &(template "{{x}}" &{@"x" (Mustache.Lambda emit-own-tag)}))
+    "an interpolation lambda re-emitting its own tag stops at the depth limit")
+  (assert-equal test
+    "deep"
+    &(template &(nest-sections 100) &{@"a" (Mustache.Str @"y")})
+    "nesting below the depth limit still renders in full"))
