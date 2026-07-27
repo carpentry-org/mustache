@@ -3,6 +3,11 @@
 
 (use-all Mustache Test)
 
+(def *calls* 0)
+
+(sig count-call (Fn [String] String))
+(defn count-call [_] (do (set! *calls* (Int.inc *calls*)) (str *calls*)))
+
 (deftest test
   (assert-equal test
     "this is a strawberry"
@@ -27,9 +32,9 @@
     &(template "this is a {{{ thing }}}" &{})
     "simple templating with missing values works")
   (assert-equal test
-    "this is a #lambda"
+    "this is a strawberry"
     &(template "this is a {{{ thing }}}"
-               &{@"thing" (Mustache.Lambda (fn [x] x))})
+               &{@"thing" (Mustache.Lambda (fn [_] @"strawberry"))})
     "simple templating with functions works")
   (assert-equal test "partial says: 'hi, mustache!
 '" &(template "partial says: '{{> test/file }}'"
@@ -70,6 +75,47 @@
                &{@"wrap" (Mustache.Lambda (fn [s] s))
                  @"x" (Mustache.Str @"value")})
     "section lambda output re-parses with the delimiters active at the section")
+  (assert-equal test
+    "Hello, world!"
+    &(template "Hello, {{lambda}}!"
+               &{@"lambda" (Mustache.Lambda (fn [_] @"world"))})
+    "an interpolated lambda's return value is used")
+  (assert-equal test
+    "Hello, world!"
+    &(template "Hello, {{lambda}}!"
+               &{@"planet" (Mustache.Str @"world")
+                 @"lambda" (Mustache.Lambda (fn [_] @"{{planet}}"))})
+    "interpolated lambda output is parsed and rendered against the context")
+  (assert-equal test "Hello, (|planet| => world)!" &(template "{{= | | =}}
+Hello, (|&lambda|)!" &{@"planet" (Mustache.Str @"world")
+                       @"lambda" (Mustache.Lambda (fn [_]
+                                                    @"|planet| => {{planet}}"))}) "interpolated lambda output parses with the default delimiters")
+  (assert-equal test
+    "1 == 2 == 3"
+    &(template
+      "{{lambda}} == {{{lambda}}} == {{lambda}}"
+      &{@"lambda" (Mustache.Lambda count-call)})
+    "an interpolated lambda is called once per occurrence")
+  (assert-equal test
+    "<&gt;>"
+    &(template "<{{lambda}}{{{lambda}}}"
+               &{@"lambda" (Mustache.Lambda (fn [_] @">"))})
+    "an interpolated lambda's rendered output is escaped, a raw tag's is not")
+  (assert-equal test
+    "deep"
+    &(template "{{a.b}}"
+               &{@"a" (Mustache.Mp
+                   {@"b" (Box.init (Mustache.Lambda (fn [_] @"deep")))})})
+    "a lambda reached through a dotted name is called")
+  (assert-equal test
+    "[]"
+    &(template "[{{lambda}}]" &{@"lambda" (Mustache.Lambda (fn [_] @""))})
+    "a lambda returning the empty string renders as empty")
+  (assert-equal test
+    "[]"
+    &(template "[{{lambda}}]"
+               &{@"lambda" (Mustache.Lambda (fn [_] @"{{nope}}"))})
+    "a lambda returning unresolvable tags renders as empty")
   (assert-equal test
     "this is an "
     &(template
@@ -195,12 +241,12 @@
     &(template "{{=foo=}}hi" &{})
     "malformed set-delimiter is consumed without crashing")
   (assert-equal test
-    "#lambda#lambda"
+    "ab"
     &(template "{{#fs}}{{.}}{{/fs}}"
                &{@"fs" (Mustache.Lst
-                   [(Box.init (Mustache.Lambda (fn [x] x)))
-                    (Box.init (Mustache.Lambda (fn [x] x)))])})
-    "list of lambdas stringifies each as #lambda")
+                   [(Box.init (Mustache.Lambda (fn [_] @"a")))
+                    (Box.init (Mustache.Lambda (fn [_] @"b")))])})
+    "a lambda reached through the implicit iterator is called")
   ; standalone tag whitespace handling
   (assert-equal test "Begin
 End
