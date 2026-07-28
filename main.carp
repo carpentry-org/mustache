@@ -792,6 +792,18 @@ input as long as the delimiters themselves are ASCII.")
   (hidden max-depth)
   (def max-depth 128)
 
+  ; Node budget, spent by the whole render; `depth` is per path instead.
+  (private max-work)
+  (hidden max-work)
+  (def max-work 65536)
+
+  (private spend!)
+  (hidden spend!)
+  (sig spend! (Fn [(Ref (Array Int))] Bool))
+  (defn spend! [budget]
+    (let [left @(Array.unsafe-nth budget 0)]
+      (if (> left 0) (do (Array.aset! budget 0 (Int.dec left)) true) false)))
+
   (private render-nodes)
   (hidden render-nodes)
   (private render-node)
@@ -806,6 +818,7 @@ input as long as the delimiters themselves are ASCII.")
           (Ref (Map String Mustache))
           (Ref (Array (Map String Mustache)))
           (Ref (Array (Array (Box Node))))
+          (Ref (Array Int))
           Int]
          String))
   (sig render-node
@@ -814,6 +827,7 @@ input as long as the delimiters themselves are ASCII.")
           (Ref (Map String Mustache))
           (Ref (Array (Map String Mustache)))
           (Ref (Array (Array (Box Node))))
+          (Ref (Array Int))
           Int]
          String))
   (sig render-section
@@ -826,6 +840,7 @@ input as long as the delimiters themselves are ASCII.")
           (Ref (Map String Mustache))
           (Ref (Array (Map String Mustache)))
           (Ref (Array (Array (Box Node))))
+          (Ref (Array Int))
           Int]
          String))
   (sig render-interpolation
@@ -834,42 +849,44 @@ input as long as the delimiters themselves are ASCII.")
           (Ref (Map String Mustache))
           (Ref (Array (Map String Mustache)))
           (Ref (Array (Array (Box Node))))
+          (Ref (Array Int))
           Int]
          String))
 
-  (defn render-nodes [nodes user-ctx frames overrides depth]
-    (if (>= depth max-depth)
+  (defn render-nodes [nodes user-ctx frames overrides budget depth]
+    (if (or (>= depth max-depth) (not (spend! budget)))
       @""
       (let-do [sb (StringBuf.create)
                inner (Int.inc depth)]
         (for [i 0 (Array.length nodes)]
           (let [n (Box.peek (Array.unsafe-nth nodes i))
-                piece (render-node n user-ctx frames overrides inner)]
+                piece (render-node n user-ctx frames overrides budget inner)]
             (StringBuf.append-str &sb &piece)))
         (StringBuf.to-string &sb))))
 
   ; The spec's interpolation lambdas are arity 0, hence the empty argument, and
   ; their output parses with the default delimiters, unlike a section lambda's.
-  (defn render-interpolation [v user-ctx frames overrides depth]
+  (defn render-interpolation [v user-ctx frames overrides budget depth]
     (match-ref v
       (Mustache.Lambda f)
         (let [rendered (~f @"")
               new-nodes (parse &rendered)]
-          (render-nodes &new-nodes user-ctx frames overrides depth))
+          (render-nodes &new-nodes user-ctx frames overrides budget depth))
       _ (to-str v)))
 
-  (defn render-node [n user-ctx frames overrides depth]
+  (defn render-node [n user-ctx frames overrides budget depth]
     (match-ref n
       (Node.NLit s) @s
       (Node.NVar name)
         (match (resolve-name user-ctx frames name)
           (Maybe.Just v)
-            (escape &(render-interpolation &v user-ctx frames overrides depth))
+            (escape
+              &(render-interpolation &v user-ctx frames overrides budget depth))
           (Maybe.Nothing) @"")
       (Node.NRaw name)
         (match (resolve-name user-ctx frames name)
           (Maybe.Just v)
-            (render-interpolation &v user-ctx frames overrides depth)
+            (render-interpolation &v user-ctx frames overrides budget depth)
           (Maybe.Nothing) @"")
       (Node.NSect name raw-body open close body)
         (match (resolve-name user-ctx frames name)
@@ -882,15 +899,17 @@ input as long as the delimiters themselves are ASCII.")
                             user-ctx
                             frames
                             overrides
+                            budget
                             depth)
           (Maybe.Nothing) @"")
       (Node.NInv name body)
         (match (resolve-name user-ctx frames name)
           (Maybe.Just v)
             (if (falsy? &v)
-              (render-nodes body user-ctx frames overrides depth)
+              (render-nodes body user-ctx frames overrides budget depth)
               @"")
-          (Maybe.Nothing) (render-nodes body user-ctx frames overrides depth))
+          (Maybe.Nothing)
+            (render-nodes body user-ctx frames overrides budget depth))
       (Node.NPart name indent)
         (let [fname (format "%s.mustache" name)
               contents? (IO.read-file &fname)]
@@ -899,7 +918,7 @@ input as long as the delimiters themselves are ASCII.")
             (Result.Success contents)
               (let [source (indent-lines &contents indent)
                     sub-nodes (parse &source)]
-                (render-nodes &sub-nodes user-ctx frames overrides depth))))
+                (render-nodes &sub-nodes user-ctx frames overrides budget depth))))
       (Node.NParent name indent children)
         (let [fname (format "%s.mustache" name)
               contents? (IO.read-file &fname)]
@@ -913,15 +932,16 @@ input as long as the delimiters themselves are ASCII.")
                                            user-ctx
                                            frames
                                            overrides
+                                           budget
                                            depth)]
                   (ignore (Array.pop-back! overrides))
                   out))))
       (Node.NBlock name indent body)
         (let [out (match (override-body overrides name)
                 (Maybe.Just ov)
-                  (render-nodes &ov user-ctx frames overrides depth)
+                  (render-nodes &ov user-ctx frames overrides budget depth)
                 (Maybe.Nothing)
-                  (render-nodes body user-ctx frames overrides depth))]
+                  (render-nodes body user-ctx frames overrides budget depth))]
           (indent-lines &out indent))))
 
   (defn render-section [v
@@ -932,19 +952,20 @@ input as long as the delimiters themselves are ASCII.")
                         user-ctx
                         frames
                         overrides
+                        budget
                         depth]
     (match-ref v
       (Mustache.Str s)
         (if (String.empty? s)
           @""
-          (render-nodes body user-ctx frames overrides depth))
+          (render-nodes body user-ctx frames overrides budget depth))
       (Mustache.Lambda f)
         (let [rendered (~f @raw-body)
               new-nodes (parse-with-delims &rendered open close)]
-          (render-nodes &new-nodes user-ctx frames overrides depth))
+          (render-nodes &new-nodes user-ctx frames overrides budget depth))
       (Mustache.Mp m)
         (let-do [_ (Array.push-back! frames (frame-from-mp m))
-                 out (render-nodes body user-ctx frames overrides depth)]
+                 out (render-nodes body user-ctx frames overrides budget depth)]
           (ignore (Array.pop-back! frames))
           out)
       (Mustache.Lst items)
@@ -960,6 +981,7 @@ input as long as the delimiters themselves are ASCII.")
                                                          user-ctx
                                                          frames
                                                          overrides
+                                                         budget
                                                          depth))
                     (ignore (Array.pop-back! frames)))
                 _
@@ -971,6 +993,7 @@ input as long as the delimiters themselves are ASCII.")
                                                          user-ctx
                                                          frames
                                                          overrides
+                                                         budget
                                                          depth))
                     (ignore (Array.pop-back! frames))))))
           (StringBuf.to-string &sb))))
@@ -1027,11 +1050,17 @@ Trimming: names inside mustache tags are trimmed, so `{{ thing }}` looks up
 `\"thing\"`. Opening and closing section markers must use consistent names,
 i.e. `{{/thing}}` is not a close for `{{^ thing }}`.
 
-Rendering nests at most 128 levels deep; anything below that renders as the
-empty string, the same as a partial naming a missing file. A partial, parent or
-lambda that includes itself therefore truncates instead of recursing forever.")
+Rendering nests at most 128 levels deep and expands at most 65536 nodes in
+total; past either limit the offending subtree renders as the empty string, the
+same as a partial naming a missing file. The depth limit stops a partial,
+parent or lambda that pulls itself back in once; the node limit stops one that
+pulls itself back in twice, which fans out exponentially rather than merely
+deeply. The node budget is shared by the whole render, so a template that
+legitimately expands more than 65536 nodes — iterating over a very large list,
+say — is truncated too.")
   (defn template [s values]
     (let-do [nodes (parse s)
              frames (the (Array (Map String Mustache)) [])
-             overrides (the (Array (Array (Box Node))) [])]
-      (render-nodes &nodes values &frames &overrides 0))))
+             overrides (the (Array (Array (Box Node))) [])
+             budget (the (Array Int) [max-work])]
+      (render-nodes &nodes values &frames &overrides &budget 0))))

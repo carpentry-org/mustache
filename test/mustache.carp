@@ -14,6 +14,16 @@
 (sig emit-own-tag (Fn [String] String))
 (defn emit-own-tag [_] @"i{{x}}")
 
+(sig emit-own-section-twice (Fn [String] String))
+(defn emit-own-section-twice [body]
+  (fmt "s{{#x}}%s{{/x}}{{#x}}%s{{/x}}" &body &body))
+
+(sig repeat-item (Fn [Int] Mustache))
+(defn repeat-item [n]
+  (let-do [items (the (Array (Box Mustache)) [])]
+    (for [i 0 n] (Array.push-back! &items (Box.init (Mustache.Str @"z"))))
+    (Mustache.Lst items)))
+
 (sig nest-sections (Fn [Int] String))
 (defn nest-sections [n]
   (let-do [sb (StringBuf.create)]
@@ -644,4 +654,19 @@ three
   (assert-equal test
     "deep"
     &(template &(nest-sections 100) &{@"a" (Mustache.Str @"y")})
-    "nesting below the depth limit still renders in full"))
+    "nesting below the depth limit still renders in full")
+  ; recursion node limit
+  (assert-equal test
+    65535
+    (String.length &(template "{{>test/rec-dbl}}" &{}))
+    "a partial including itself twice stops at the node limit")
+  (assert-equal test
+    65535
+    (String.length
+      &(template "{{#x}}b{{/x}}"
+                 &{@"x" (Mustache.Lambda emit-own-section-twice)}))
+    "a section lambda re-emitting its own section twice stops at the node limit")
+  (assert-equal test
+    2000
+    (String.length &(template "{{#xs}}{{.}}{{/xs}}" &{@"xs" (repeat-item 2000)}))
+    "iteration below the node limit still renders in full"))
