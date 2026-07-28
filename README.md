@@ -217,16 +217,19 @@ template (or section body):
   `{{/thing}}` does not close `{{^ thing }}`.
 - Templates are processed at byte level, which is correct for ASCII and
   UTF-8 input as long as the delimiters themselves are ASCII.
-- Rendering nests at most 128 levels deep and expands at most 65536 nodes
-  in total; past either limit the offending subtree renders as the empty
+- Rendering nests at most 128 levels deep, and one render emits at most
+  1048576 bytes; each expansion costs a further 16 bytes of that same
+  budget, so at most 65536 subtrees are expanded even when they emit
+  nothing. Past any of these the offending subtree renders as the empty
   string, like a partial naming a missing file. The depth limit stops a
-  partial, parent or lambda that pulls itself back in once; the node limit
-  stops one that pulls itself back in twice, which fans out exponentially
-  rather than merely deeply. The node budget is shared by the whole render,
-  so a template that legitimately expands more than 65536 nodes — iterating
-  over a very large list, say — is truncated too. Recursion that terminates
-  on the data running out, as in the spec's recursive-partial case, is
-  unaffected.
+  partial, parent or lambda that pulls itself back in once; the byte budget
+  stops one that pulls itself back in twice and fans out exponentially, and
+  because it counts bytes rather than expansions it does so whatever the
+  size of the body being repeated. The budget is shared by the whole
+  render, so a template that legitimately emits more than 1048576 bytes —
+  iterating over a very large list, say — is truncated too. Recursion that
+  terminates on the data running out, as in the spec's recursive-partial
+  case, is unaffected.
 
 <hr/>
 

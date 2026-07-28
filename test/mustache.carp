@@ -16,7 +16,11 @@
 
 (sig emit-own-section-twice (Fn [String] String))
 (defn emit-own-section-twice [body]
-  (fmt "s{{#x}}%s{{/x}}{{#x}}%s{{/x}}" &body &body))
+  (fmt "%s{{#x}}%s{{/x}}{{#x}}%s{{/x}}" &(String.repeat 512 "s") &body &body))
+
+(sig emit-own-section-twice-bare (Fn [String] String))
+(defn emit-own-section-twice-bare [body]
+  (fmt "{{#x}}%s{{/x}}{{#x}}%s{{/x}}" &body &body))
 
 (sig repeat-item (Fn [Int] Mustache))
 (defn repeat-item [n]
@@ -655,18 +659,24 @@ three
     "deep"
     &(template &(nest-sections 100) &{@"a" (Mustache.Str @"y")})
     "nesting below the depth limit still renders in full")
-  ; recursion node limit
+  ; recursion work limit
   (assert-equal test
-    65535
+    1016320
     (String.length &(template "{{>test/rec-dbl}}" &{}))
-    "a partial including itself twice stops at the node limit")
+    "a partial including itself twice stops at the work limit")
   (assert-equal test
-    65535
+    1016320
     (String.length
       &(template "{{#x}}b{{/x}}"
                  &{@"x" (Mustache.Lambda emit-own-section-twice)}))
-    "a section lambda re-emitting its own section twice stops at the node limit")
+    "a section lambda re-emitting its own section twice stops at the work limit")
+  (assert-equal test
+    0
+    (String.length
+      &(template "{{#x}}b{{/x}}"
+                 &{@"x" (Mustache.Lambda emit-own-section-twice-bare)}))
+    "a branching self-reference emitting no output still terminates")
   (assert-equal test
     2000
     (String.length &(template "{{#xs}}{{.}}{{/xs}}" &{@"xs" (repeat-item 2000)}))
-    "iteration below the node limit still renders in full"))
+    "iteration below the work limit still renders in full"))

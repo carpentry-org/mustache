@@ -189,14 +189,16 @@ overridden at several levels the outermost one wins.</p>
 <p>Trimming: names inside mustache tags are trimmed, so <code>{{ thing }}</code> looks up
 <code>&quot;thing&quot;</code>. Opening and closing section markers must use consistent names,
 i.e. <code>{{/thing}}</code> is not a close for <code>{{^ thing }}</code>.</p>
-<p>Rendering nests at most 128 levels deep and expands at most 65536 nodes in
-total; past either limit the offending subtree renders as the empty string, the
-same as a partial naming a missing file. The depth limit stops a partial,
-parent or lambda that pulls itself back in once; the node limit stops one that
-pulls itself back in twice, which fans out exponentially rather than merely
-deeply. The node budget is shared by the whole render, so a template that
-legitimately expands more than 65536 nodes — iterating over a very large list,
-say — is truncated too.</p>
+<p>Rendering nests at most 128 levels deep, and one render emits at most 1048576
+bytes; each expansion costs a further 16 bytes of that same budget, so at most
+65536 subtrees are expanded even when they emit nothing. Past any of these the
+offending subtree renders as the empty string, the same as a partial naming a
+missing file. The depth limit stops a partial, parent or lambda that pulls
+itself back in once; the byte budget stops one that pulls itself back in twice
+and fans out exponentially, and because it counts bytes rather than expansions
+it does so whatever the size of the body being repeated. The budget is shared
+by the whole render, so a template that legitimately emits more than 1048576
+bytes — iterating over a very large list, say — is truncated too.</p>
 
                     </p>
                 </div>
