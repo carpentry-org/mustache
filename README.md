@@ -9,7 +9,7 @@ lambdas, partials, inheritance, comments, and set-delimiter tags.
 ## Installing
 
 ```clojure
-(load "git@github.com:carpentry-org/mustache@0.3.0")
+(load "git@github.com:carpentry-org/mustache@0.3.1")
 ```
 
 ## Usage

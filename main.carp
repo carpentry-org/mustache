@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/strbuf@0.1.0")
+(load "git@github.com:carpentry-org/strbuf@0.2.1")
 
 (doc Mustache "is a full [Mustache](https://mustache.github.io/) templating
 implementation for Carp.
