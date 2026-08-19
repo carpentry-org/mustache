@@ -275,6 +275,53 @@ Hello, (|&lambda|)!" &{@"planet" (Mustache.Str @"world")
                    [(Box.init (Mustache.Lambda (fn [_] @"a")))
                     (Box.init (Mustache.Lambda (fn [_] @"b")))])})
     "a lambda reached through the implicit iterator is called")
+  ; implicit iterator in sections
+  (assert-equal test
+    "bar is bar"
+    &(template "{{#foo}}{{.}} is {{foo}}{{/foo}}"
+               &{@"foo" (Mustache.Str @"bar")})
+    "a truthy scalar section binds itself as the implicit iterator")
+  (assert-equal test
+    "15"
+    &(template
+      "{{#a}}{{#five}}{{one}}{{.}}{{/five}}{{/a}}"
+      &{@"a" (Mustache.Mp
+          {@"one" (Box.init (Mustache.Str @"1"))
+           @"five" (Box.init (Mustache.Str @"5"))})})
+    "a scalar section inside a map keeps outer names reachable")
+  (assert-equal test
+    "bar"
+    &(template "{{#foo}}{{.}}{{/foo}}{{.}}" &{@"foo" (Mustache.Str @"bar")})
+    "a scalar section's implicit iterator does not outlive the section")
+  (assert-equal test
+    "BA"
+    &(template "{{#a}}{{#b}}{{.}}{{/b}}{{.}}{{/a}}"
+               &{@"a" (Mustache.Str @"A")
+                 @"b" (Mustache.Str @"B")})
+    "a nested scalar section shadows the outer implicit iterator")
+  (assert-equal test
+    "Ada"
+    &(template
+      "{{#foo}}{{#user}}{{.}}{{name}}{{/user}}{{/foo}}"
+      &{@"foo" (Mustache.Str @"bar")
+        @"user" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))})})
+    "a map section shadows an outer scalar's implicit iterator")
+  (assert-equal test
+    "ab"
+    &(template
+      "{{#foo}}{{#items}}{{.}}{{name}}{{/items}}{{/foo}}"
+      &{@"foo" (Mustache.Str @"bar")
+        @"items" (Mustache.Lst
+          [(Box.init (Mustache.Mp {@"name" (Box.init (Mustache.Str @"a"))}))
+           (Box.init (Mustache.Mp {@"name" (Box.init (Mustache.Str @"b"))}))])})
+    "a map list item shadows an outer scalar's implicit iterator")
+  (assert-equal test
+    "bar"
+    &(template
+      "{{#foo}}{{#echo}}{{.}}{{/echo}}{{/foo}}"
+      &{@"foo" (Mustache.Str @"bar")
+        @"echo" (Mustache.Lambda (fn [b] b))})
+    "a section lambda does not rebind the implicit iterator")
   ; standalone tag whitespace handling
   (assert-equal test "Begin
 End
