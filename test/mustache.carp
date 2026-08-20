@@ -5,6 +5,9 @@
 
 (def *calls* 0)
 
+(sig cont-byte (Fn [] String))
+(defn cont-byte [] (String.from-bytes &[187b]))
+
 (sig count-call (Fn [String] String))
 (defn count-call [_] (do (set! *calls* (Int.inc *calls*)) (str *calls*)))
 
@@ -268,6 +271,22 @@ Hello, (|&lambda|)!" &{@"planet" (Mustache.Str @"world")
     "hi"
     &(template "{{=foo=}}hi" &{})
     "malformed set-delimiter is consumed without crashing")
+  (assert-equal test
+    ""
+    &(template &(fmt "{{%s}}" &(cont-byte)) &{})
+    "a tag that is a lone UTF-8 continuation byte is an unknown variable")
+  (assert-equal test
+    "ok"
+    &(template &(fmt "{{%s}}" &(cont-byte)) &{(cont-byte) (Mustache.Str @"ok")})
+    "a continuation-byte tag name still resolves against the context")
+  (assert-equal test
+    ""
+    &(template "{{=}}" &{})
+    "a bare = tag is not a set-delimiter tag")
+  (assert-equal test
+    "x"
+    &(template "{{=é %>=}}éname%>" &{@"name" (Mustache.Str @"x")})
+    "a set-delimiter tag with a multi-byte delimiter is recognised")
   (assert-equal test
     "ab"
     &(template "{{#fs}}{{.}}{{/fs}}"

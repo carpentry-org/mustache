@@ -68,6 +68,15 @@ input as long as the delimiters themselves are ASCII.")
   (hidden ws?)
   (defn ws? [ch] (or (= \space ch) (= \tab ch) (= \newline ch) (= \return ch)))
 
+  (private first-byte?)
+  (hidden first-byte?)
+  (defn first-byte? [s len ch] (and (> len 0) (= ch (String.char-at s 0))))
+
+  (private last-byte?)
+  (hidden last-byte?)
+  (defn last-byte? [s len ch]
+    (and (> len 0) (= ch (String.char-at s (Int.dec len)))))
+
   ; Trim ASCII whitespace from both ends. `String.trim` in stdlib goes
   ; through two `Pattern.substitute` calls, allocating even when the input
   ; has no whitespace to trim — the common case for mustache tag names.
@@ -484,10 +493,11 @@ input as long as the delimiters themselves are ASCII.")
                                    (< after-tag slen)
                                    (= \} (String.char-at s after-tag)))
                           (set! after-tag (Int.inc after-tag)))
-                        (let [tag (fast-trim &raw-tag)]
+                        (let [tag (fast-trim &raw-tag)
+                              tlen (String.length &tag)]
                           (cond
                             ; comment: {{! ... }}
-                            (String.starts-with? &tag "!")
+                            (first-byte? &tag tlen \!)
                             (let-do [sa-b (standalone-before s next-open)
                                      sa-a (standalone-after s after-tag slen)
                                      sa (and (>= sa-b 0) (>= sa-a 0))]
@@ -495,9 +505,10 @@ input as long as the delimiters themselves are ASCII.")
                                 (trim-sa-lit &nodes s lit-start sa-b next-open))
                               (set! p (if sa sa-a after-tag)))
                             ; set delimiter: {{=NEW-OPEN NEW-CLOSE=}}
-                            (and (String.starts-with? &tag "=")
-                                 (String.ends-with? &tag "="))
-                            (let-do [inner-len (Int.dec (String.length &tag))
+                            (and (> tlen 1)
+                                 (first-byte? &tag tlen \=)
+                                 (last-byte? &tag tlen \=))
+                            (let-do [inner-len (Int.dec tlen)
                                      inner (fast-trim &(byte-slice &tag
                                                                    1
                                                                    inner-len))
@@ -523,9 +534,8 @@ input as long as the delimiters themselves are ASCII.")
                                   (trim-sa-lit &nodes s lit-start sa-b next-open))
                                 (set! p (if sa sa-a after-tag))))
                             ; partial: {{> name }}
-                            (String.starts-with? &tag ">")
-                            (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))
+                            (first-byte? &tag tlen \>)
+                            (let-do [name (fast-trim &(byte-slice &tag 1 tlen))
                                      sa-b (standalone-before s next-open)
                                      sa-a (standalone-after s after-tag slen)
                                      sa (and (>= sa-b 0) (>= sa-a 0))
@@ -540,9 +550,8 @@ input as long as the delimiters themselves are ASCII.")
                                                                            indent))))
                               (set! p (if sa sa-a after-tag)))
                             ; section open: {{# name }}
-                            (String.starts-with? &tag "#")
-                            (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))
+                            (first-byte? &tag tlen \#)
+                            (let-do [name (fast-trim &(byte-slice &tag 1 tlen))
                                      sa-b (standalone-before s next-open)
                                      sa-a (standalone-after s after-tag slen)
                                      sa (and (>= sa-b 0) (>= sa-a 0))
@@ -579,9 +588,8 @@ input as long as the delimiters themselves are ASCII.")
                                                                        child-nodes))))
                                   (set! p @(Pair.b ends)))))
                             ; inverted section: {{^ name }}
-                            (String.starts-with? &tag "^")
-                            (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))
+                            (first-byte? &tag tlen \^)
+                            (let-do [name (fast-trim &(byte-slice &tag 1 tlen))
                                      sa-b (standalone-before s next-open)
                                      sa-a (standalone-after s after-tag slen)
                                      sa (and (>= sa-b 0) (>= sa-a 0))
@@ -611,9 +619,8 @@ input as long as the delimiters themselves are ASCII.")
                                                                               child-nodes))))
                                   (set! p @(Pair.b ends)))))
                             ; parent: {{< name }}
-                            (String.starts-with? &tag "<")
-                            (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))
+                            (first-byte? &tag tlen \<)
+                            (let-do [name (fast-trim &(byte-slice &tag 1 tlen))
                                      sa-b (standalone-before s next-open)
                                      child (parse-body s
                                                        after-tag
@@ -649,9 +656,8 @@ input as long as the delimiters themselves are ASCII.")
                                       close-end
                                       @(Pair.b ends))))
                             ; block: {{$ name }}
-                            (String.starts-with? &tag "$")
-                            (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))
+                            (first-byte? &tag tlen \$)
+                            (let-do [name (fast-trim &(byte-slice &tag 1 tlen))
                                      sa-b (standalone-before s next-open)
                                      open-nl (standalone-after s after-tag slen)
                                      line-open (and (>= sa-b 0) (>= open-nl 0))
@@ -712,9 +718,8 @@ input as long as the delimiters themselves are ASCII.")
                                                                                 body))))
                                   (set! p @(Pair.b ends)))))
                             ; section close: {{/ name }}
-                            (String.starts-with? &tag "/")
-                            (let [name (fast-trim
-                                    &(byte-slice &tag 1 (String.length &tag)))]
+                            (first-byte? &tag tlen \/)
+                            (let [name (fast-trim &(byte-slice &tag 1 tlen))]
                               (match-ref section-name
                                 (Maybe.Just expected)
                                   (if (String.= &name expected)
@@ -735,9 +740,8 @@ input as long as the delimiters themselves are ASCII.")
                                     (set! p after-tag))
                                 (Maybe.Nothing) (set! p after-tag)))
                             ; explicit raw var: {{& name }}
-                            (String.starts-with? &tag "&")
-                            (let-do [name (fast-trim
-                                       &(byte-slice &tag 1 (String.length &tag)))]
+                            (first-byte? &tag tlen \&)
+                            (let-do [name (fast-trim &(byte-slice &tag 1 tlen))]
                               (set! nodes
                                     (Array.push-back nodes
                                                      (Box.init (Node.NRaw name))))
