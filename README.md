@@ -41,8 +41,9 @@ raw.
 
 ### Sections
 
-A section on a truthy `Str` renders its body once. On a falsy value
-(empty `Str`, empty `Lst`) the whole section is skipped:
+A section on a truthy `Str` renders its body once, with that string bound
+as `{{.}}`. On a falsy value (empty `Str`, empty `Lst`) the whole section
+is skipped:
 
 ```clojure
 (Mustache.template
@@ -53,8 +54,9 @@ A section on a truthy `Str` renders its body once. On a falsy value
 
 ### Lists
 
-A section on an `Lst` iterates. List items that are `Mp` push their fields
-onto the context; other values are bound as `{{.}}`:
+A section on an `Lst` iterates. Every item is bound as `{{.}}` for its own
+pass over the body; items that are `Mp` also push their fields onto the
+context:
 
 ```clojure
 (Mustache.template
@@ -76,6 +78,20 @@ context stack. Outer keys fall through:
   &{@"user" (Mustache.Mp {@"name" (Box.init (Mustache.Str @"Ada"))})
     @"role" (Mustache.Str @"admin")})
 ; => "Ada (admin)"
+```
+
+### The implicit iterator
+
+`{{.}}` is whatever value the innermost enclosing section pushed: a list
+item, a truthy `Str`, or an `Mp`. An `Mp` renders as the empty string, but
+it still shadows an implicit iterator bound further out. A lambda section
+renders against the enclosing context, so it leaves `{{.}}` alone.
+
+```clojure
+(Mustache.template
+  "{{#greeting}}{{.}}, {{name}}!{{/greeting}}"
+  &{@"greeting" (Mustache.Str @"Hello") @"name" (Mustache.Str @"Ada")})
+; => "Hello, Ada!"
 ```
 
 ### Dotted names

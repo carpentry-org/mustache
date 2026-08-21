@@ -240,6 +240,17 @@ input as long as the delimiters themselves are ASCII.")
       (the (Map String Mustache) {})
       inner-mp))
 
+  ; A section's frame binds `.` to the section's value, plus an Mp's entries.
+  (private frame-for)
+  (hidden frame-for)
+  (defn frame-for [v]
+    (Map.put
+      (match-ref v
+        (Mustache.Mp m) (frame-from-mp m)
+        _ (the (Map String Mustache) {}))
+      "."
+      v))
+
   ; Scan backwards from `pos` (exclusive) checking that only horizontal
   ; whitespace exists back to the previous newline or start of string.
   ; Returns the position of the first whitespace character in that run,
@@ -833,6 +844,8 @@ input as long as the delimiters themselves are ASCII.")
   (hidden render-section)
   (private render-interpolation)
   (hidden render-interpolation)
+  (private render-in-frame)
+  (hidden render-in-frame)
   (sig render-nodes
        (Fn
          [(Ref (Array (Box Node)))
@@ -867,6 +880,16 @@ input as long as the delimiters themselves are ASCII.")
   (sig render-interpolation
        (Fn
          [(Ref Mustache)
+          (Ref (Map String Mustache))
+          (Ref (Array (Map String Mustache)))
+          (Ref (Array (Array (Box Node))))
+          (Ref (Array Int))
+          Int]
+         String))
+  (sig render-in-frame
+       (Fn
+         [(Ref Mustache)
+          (Ref (Array (Box Node)))
           (Ref (Map String Mustache))
           (Ref (Array (Map String Mustache)))
           (Ref (Array (Array (Box Node))))
@@ -966,6 +989,12 @@ input as long as the delimiters themselves are ASCII.")
                   (render-nodes body user-ctx frames overrides budget depth))]
           (indent-lines &out indent))))
 
+  (defn render-in-frame [v body user-ctx frames overrides budget depth]
+    (let-do [_ (Array.push-back! frames (frame-for v))
+             out (render-nodes body user-ctx frames overrides budget depth)]
+      (ignore (Array.pop-back! frames))
+      out))
+
   (defn render-section [v
                         body
                         raw-body
@@ -980,44 +1009,25 @@ input as long as the delimiters themselves are ASCII.")
       (Mustache.Str s)
         (if (String.empty? s)
           @""
-          (render-nodes body user-ctx frames overrides budget depth))
+          (render-in-frame v body user-ctx frames overrides budget depth))
       (Mustache.Lambda f)
         (let [rendered (~f @raw-body)
               new-nodes (parse-with-delims &rendered open close)]
           (render-nodes &new-nodes user-ctx frames overrides budget depth))
-      (Mustache.Mp m)
-        (let-do [_ (Array.push-back! frames (frame-from-mp m))
-                 out (render-nodes body user-ctx frames overrides budget depth)]
-          (ignore (Array.pop-back! frames))
-          out)
+      (Mustache.Mp _)
+        (render-in-frame v body user-ctx frames overrides budget depth)
       (Mustache.Lst items)
         (let-do [sb (StringBuf.create)]
           (for [i 0 (Array.length items)]
             (let [item (Box.peek (Array.unsafe-nth items i))]
-              (match-ref item
-                (Mustache.Mp m)
-                  (do
-                    (Array.push-back! frames (frame-from-mp m))
-                    (StringBuf.append-str &sb
-                                          &(render-nodes body
-                                                         user-ctx
-                                                         frames
-                                                         overrides
-                                                         budget
-                                                         depth))
-                    (ignore (Array.pop-back! frames)))
-                _
-                  (let-do [empty-f (the (Map String Mustache) {})
-                           dot-frame (Map.put empty-f "." item)]
-                    (Array.push-back! frames dot-frame)
-                    (StringBuf.append-str &sb
-                                          &(render-nodes body
-                                                         user-ctx
-                                                         frames
-                                                         overrides
-                                                         budget
-                                                         depth))
-                    (ignore (Array.pop-back! frames))))))
+              (StringBuf.append-str &sb
+                                    &(render-in-frame item
+                                                      body
+                                                      user-ctx
+                                                      frames
+                                                      overrides
+                                                      budget
+                                                      depth))))
           (StringBuf.to-string &sb))))
 
   (doc template "templates a [Mustache](https://mustache.github.io/)-formatted
@@ -1025,13 +1035,15 @@ string `s` using the map `values`.
 
 The map must be from `String` to `Mustache`. Values can be:
 
-- `Str` — a plain string. Empty strings are falsy for section purposes.
+- `Str` — a plain string. Empty strings are falsy for section purposes; a
+  truthy one is bound as `{{.}}` in its section body.
 - `Lst` — an array of boxed `Mustache` values. Empty arrays are falsy;
-  non-empty arrays cause sections to iterate once per item. Inside a list
-  section, bare items are bound as `{{.}}` and `Mp` items provide nested
+  non-empty arrays cause sections to iterate once per item. Every item is
+  bound as `{{.}}` for its own pass, and `Mp` items also provide nested
   object contexts.
 - `Mp` — a nested map of boxed `Mustache` values. Used as a section value,
-  it pushes its entries onto the context for the section body.
+  it pushes its entries onto the context for the section body and binds
+  `{{.}}` to itself.
 - `Lambda` — a function applied to the raw (unrendered) section body, or to
   the empty string when it is used in an interpolation tag. Its return value
   is parsed as a Mustache template and rendered against the current context,
@@ -1052,8 +1064,12 @@ Dotted names like `{{a.b.c}}` walk nested `Mp` values: the first segment is
 looked up on the context stack, then each further segment must be a key of the
 previous segment's map. This works in interpolation, sections, and inverted
 sections. If any segment is missing or is not a map, the name is treated as
-absent (renders empty / skips the section). A bare `{{.}}` remains the implicit
-iterator.
+absent (renders empty / skips the section).
+
+A bare `{{.}}` is the implicit iterator: whatever value the innermost enclosing
+section pushed. An `Mp` renders as the empty string there, but still shadows an
+implicit iterator bound further out; a lambda section renders against the
+enclosing context and so leaves `{{.}}` alone.
 
 A `{{> name}}` partial that stands alone on its line has that line removed, and
 every non-empty line of `name.mustache` is indented to the tag's column before

@@ -149,13 +149,15 @@ input as long as the delimiters themselves are ASCII.</p>
 string <code>s</code> using the map <code>values</code>.</p>
 <p>The map must be from <code>String</code> to <code>Mustache</code>. Values can be:</p>
 <ul>
-<li><code>Str</code> — a plain string. Empty strings are falsy for section purposes.</li>
+<li><code>Str</code> — a plain string. Empty strings are falsy for section purposes; a
+truthy one is bound as <code>{{.}}</code> in its section body.</li>
 <li><code>Lst</code> — an array of boxed <code>Mustache</code> values. Empty arrays are falsy;
-non-empty arrays cause sections to iterate once per item. Inside a list
-section, bare items are bound as <code>{{.}}</code> and <code>Mp</code> items provide nested
+non-empty arrays cause sections to iterate once per item. Every item is
+bound as <code>{{.}}</code> for its own pass, and <code>Mp</code> items also provide nested
 object contexts.</li>
 <li><code>Mp</code> — a nested map of boxed <code>Mustache</code> values. Used as a section value,
-it pushes its entries onto the context for the section body.</li>
+it pushes its entries onto the context for the section body and binds
+<code>{{.}}</code> to itself.</li>
 <li><code>Lambda</code> — a function applied to the raw (unrendered) section body, or to
 the empty string when it is used in an interpolation tag. Its return value
 is parsed as a Mustache template and rendered against the current context,
@@ -173,8 +175,11 @@ occurrence, and what it renders to is escaped unless the tag is <code>{{{…}}}<
 looked up on the context stack, then each further segment must be a key of the
 previous segment's map. This works in interpolation, sections, and inverted
 sections. If any segment is missing or is not a map, the name is treated as
-absent (renders empty / skips the section). A bare <code>{{.}}</code> remains the implicit
-iterator.</p>
+absent (renders empty / skips the section).</p>
+<p>A bare <code>{{.}}</code> is the implicit iterator: whatever value the innermost enclosing
+section pushed. An <code>Mp</code> renders as the empty string there, but still shadows an
+implicit iterator bound further out; a lambda section renders against the
+enclosing context and so leaves <code>{{.}}</code> alone.</p>
 <p>A <code>{{&gt; name}}</code> partial that stands alone on its line has that line removed, and
 every non-empty line of <code>name.mustache</code> is indented to the tag's column before
 it is parsed. The indent applies to the partial's source, not to its rendered
