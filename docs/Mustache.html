@@ -183,7 +183,9 @@ enclosing context and so leaves <code>{{.}}</code> alone.</p>
 <p>A <code>{{&gt; name}}</code> partial that stands alone on its line has that line removed, and
 every non-empty line of <code>name.mustache</code> is indented to the tag's column before
 it is parsed. The indent applies to the partial's source, not to its rendered
-output, so newlines inside an interpolated value are not indented.</p>
+output, so newlines inside an interpolated value are not indented. Use
+<code>template-with-partials</code> to supply partial sources from a map instead of from
+the filesystem.</p>
 <p>A <code>{{$name}}default{{/name}}</code> block marks a spot that can be filled in from
 elsewhere; on its own it renders <code>default</code>. A <code>{{&lt;name}}...{{/name}}</code> parent
 injects <code>name.mustache</code> like a partial, but the blocks written directly inside
@@ -204,6 +206,42 @@ and fans out exponentially, and because it counts bytes rather than expansions
 it does so whatever the size of the body being repeated. The budget is shared
 by the whole render, so a template that legitimately emits more than 1048576
 bytes — iterating over a very large list, say — is truncated too.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#template-with-partials">
+                        <h3 id="template-with-partials">
+                            template-with-partials
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref (Map String Mustache) b), (Ref (Map String String) c)] String)
+                    </p>
+                    <pre class="args">
+                        (template-with-partials s values partials)
+                    </pre>
+                    <p class="doc">
+                        <p>templates a
+<a href="https://mustache.github.io/">Mustache</a>-formatted string <code>s</code> using the map
+<code>values</code>, resolving <code>{{&gt; name}}</code> partials and <code>{{&lt;name}}</code> parents from
+<code>partials</code> before falling back to disk.</p>
+<p><code>partials</code> maps a partial name to its source. A name found there is used as
+is; a name that is absent is read from <code>name.mustache</code> in the working
+directory, exactly as <code>template</code> does. A name that is in neither renders as
+the empty string.</p>
+<pre><code>(Mustache.template-with-partials
+  &quot;&lt;ul&gt;{{&gt; item}}&lt;/ul&gt;&quot;
+  &amp;{@&quot;name&quot; (Mustache.Str @&quot;Ada&quot;)}
+  &amp;{@&quot;item&quot; @&quot;&lt;li&gt;{{name}}&lt;/li&gt;&quot;})
+; =&gt; &quot;&lt;ul&gt;&lt;li&gt;Ada&lt;/li&gt;&lt;/ul&gt;&quot;
+</code></pre>
+<p>Map-sourced partials are parsed, indented and budgeted like file-sourced
+ones, so a partial that names itself still terminates at the depth limit.</p>
+<p>See <code>template</code> for everything else about rendering.</p>
 
                     </p>
                 </div>

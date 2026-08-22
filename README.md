@@ -27,6 +27,10 @@ context. The `Mustache` sumtype has four value kinds:
   to the empty string in an interpolation tag; its result is re-parsed and
   rendered as a template.
 
+`Mustache.template-with-partials` takes the same two arguments plus a map
+of partial sources, so a template that pulls in other templates does not
+need them on disk. See [Partials from memory](#partials-from-memory).
+
 ### Variable substitution
 
 ```clojure
@@ -177,13 +181,36 @@ Because the indent is applied to the partial's source rather than to its
 rendered output, newlines inside an interpolated value are not indented.
 Nested partials accumulate indentation.
 
+### Partials from memory
+
+`Mustache.template-with-partials` takes a third argument, a
+`(Map String String)` from partial name to partial source, and resolves
+`{{> name}}` and `{{<name}}` from it before touching the filesystem:
+
+```clojure
+(Mustache.template-with-partials
+  "<ul>{{> item}}</ul>"
+  &{@"name" (Mustache.Str @"Ada")}
+  &{@"item" @"<li>{{name}}</li>"})
+; => "<ul><li>Ada</li></ul>"
+```
+
+A name that is not a key of the map is read from `name.mustache` as before,
+and a name that is in neither renders as the empty string. Map-sourced
+partials are indented, parsed and budgeted exactly like file-sourced ones,
+so a partial that names itself still terminates.
+
+`Mustache.template` is `template-with-partials` with an empty map, so it
+keeps reading every partial from disk.
+
 ### Inheritance
 
 `{{$name}}default{{/name}}` is a block: a named spot in a template that
 can be filled in from elsewhere. On its own it renders its default body.
 
-`{{<name}}…{{/name}}` is a parent: it injects `name.mustache` just like a
-partial, except that the blocks written directly inside it replace the
+`{{<name}}…{{/name}}` is a parent: it injects `name.mustache` (or the map
+entry `name`, under `template-with-partials`) just like a partial, except
+that the blocks written directly inside it replace the
 same-named blocks of the injected template. Any other content inside a
 parent tag is ignored.
 

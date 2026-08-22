@@ -745,4 +745,63 @@ three
   (assert-equal test
     2000
     (String.length &(template "{{#xs}}{{.}}{{/xs}}" &{@"xs" (repeat-item 2000)}))
-    "iteration below the work limit still renders in full"))
+    "iteration below the work limit still renders in full")
+  ; partials from a map
+  (assert-equal test
+    "hi, Ada!"
+    &(template-with-partials "{{> greet }}"
+                             &{@"name" (Mustache.Str @"Ada")}
+                             &{@"greet" @"hi, {{name}}!"})
+    "a partial resolves from the partials map")
+  (assert-equal test
+    "from the map"
+    &(template-with-partials "{{> test/file }}"
+                             &{@"name" (Mustache.Str @"world")}
+                             &{@"test/file" @"from the map"})
+    "a map entry wins over the file of the same name")
+  (assert-equal test "hi, world!
+" &(template-with-partials "{{> test/file }}"
+                           &{@"name" (Mustache.Str @"world")}
+                           &{@"other" @"unused"}) "a partial absent from the map falls back to the file")
+  (assert-equal test
+    "[]"
+    &(template-with-partials "[{{> nope }}]" &{} &{@"other" @"unused"})
+    "a partial in neither the map nor the filesystem renders as empty")
+  (assert-equal test "Begin
+  hi, Ada!
+End
+" &(template-with-partials "Begin
+  {{> greet }}
+End
+" &{@"name" (Mustache.Str @"Ada")} &{@"greet" @"hi, {{name}}!
+"}) "a standalone map partial is indented to the column of its tag")
+  (assert-equal test " |
+ <
+->
+ |
+" &(template-with-partials " {{> ind }}
+" &{@"content" (Mustache.Str @"<
+->")} &{@"ind" @"|
+{{{content}}}
+|
+"}) "a map partial is indented at its source, not at its rendered output")
+  (assert-equal test
+    "before|filled|after"
+    &(template-with-partials
+      "{{<layout}}{{$slot}}filled{{/slot}}{{/layout}}"
+      &{}
+      &{@"layout" @"before|{{$slot}}default{{/slot}}|after"})
+    "a parent and its block override resolve from the partials map")
+  (assert-equal test
+    "before|default|after"
+    &(template-with-partials "{{<layout}}{{/layout}}"
+                             &{}
+                             &{@"layout" @"before|{{$slot}}default{{/slot}}|after"})
+    "an unoverridden block of a map parent renders its default")
+  (assert-equal test
+    127
+    (String.length
+      &(template-with-partials "{{>self}}" &{} &{@"self" @"x{{>self}}"}))
+    "a map partial naming itself stops at the depth limit")
+  (assert-equal test "hi, mustache!
+" &(template "{{> test/file }}" &{@"name" (Mustache.Str @"mustache")}) "template still reads partials from disk"))
