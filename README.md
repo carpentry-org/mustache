@@ -31,6 +31,10 @@ context. The `Mustache` sumtype has four value kinds:
 of partial sources, so a template that pulls in other templates does not
 need them on disk. See [Partials from memory](#partials-from-memory).
 
+`Mustache.template-root` takes a `&Mustache` instead of a map, for the
+templates whose top-level context is a bare string, list or number. See
+[Non-map contexts](#non-map-contexts).
+
 ### Variable substitution
 
 ```clojure
@@ -97,6 +101,37 @@ renders against the enclosing context, so it leaves `{{.}}` alone.
   &{@"greeting" (Mustache.Str @"Hello") @"name" (Mustache.Str @"Ada")})
 ; => "Hello, Ada!"
 ```
+
+### Non-map contexts
+
+The Mustache data model allows any value as the top-level context, not only
+an object. `Mustache.template-root` takes an `&Mustache` root and binds it as
+`{{.}}` for the whole template:
+
+```clojure
+(Mustache.template-root "Hello, {{.}}!" &(Mustache.Str @"world"))
+; => "Hello, world!"
+```
+
+A `Lst` root iterates at the root level:
+
+```clojure
+(Mustache.template-root
+  "{{#.}}({{value}}){{/.}}"
+  &(Mustache.Lst
+    [(Box.init (Mustache.Mp {@"value" (Box.init (Mustache.Str @"a"))}))
+     (Box.init (Mustache.Mp {@"value" (Box.init (Mustache.Str @"b"))}))]))
+; => "(a)(b)"
+```
+
+An `Mp` root also contributes its entries to plain name lookup, so it renders
+the same as the equivalent map handed to `Mustache.template`. Against a `Str`
+root a `{{name}}` tag has nothing to resolve against, so it renders empty and
+its section is skipped.
+
+`Mustache.template` leaves the top-level `{{.}}` unbound, which is the one way
+the two differ on a map. `Mustache.template-root-with-partials` is the
+partials-map variant.
 
 ### Dotted names
 

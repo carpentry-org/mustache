@@ -34,7 +34,9 @@
 implementation for Carp.</p>
 <p>A template is rendered via <code>Mustache.template</code> against a context of type
 <code>(Map String Mustache)</code>. The <code>Mustache</code> sumtype carries the supported value
-kinds: strings, lists, nested maps, and lambdas.</p>
+kinds: strings, lists, nested maps, and lambdas. <code>Mustache.template-root</code>
+renders against a root context of any <code>Mustache</code> value, for the templates
+whose top-level data is not an object.</p>
 <pre><code>(Mustache.template
   &quot;Hello, {{#users}}{{name}} {{/users}}!&quot;
   &amp;{@&quot;users&quot; (Mustache.Lst [(Box.init (Mustache.Mp {@&quot;name&quot; (Box.init (Mustache.Str @&quot;Ada&quot;))}))
@@ -206,6 +208,72 @@ and fans out exponentially, and because it counts bytes rather than expansions
 it does so whatever the size of the body being repeated. The budget is shared
 by the whole render, so a template that legitimately emits more than 1048576
 bytes — iterating over a very large list, say — is truncated too.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#template-root">
+                        <h3 id="template-root">
+                            template-root
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref Mustache b)] String)
+                    </p>
+                    <pre class="args">
+                        (template-root s root)
+                    </pre>
+                    <p class="doc">
+                        <p>templates a
+<a href="https://mustache.github.io/">Mustache</a>-formatted string <code>s</code> against <code>root</code>,
+which may be any <code>Mustache</code> value and not just a map.</p>
+<p><code>root</code> is bound as the implicit iterator <code>{{.}}</code> for the whole template:</p>
+<pre><code>(Mustache.template-root &quot;Hello, {{.}}!&quot; &amp;(Mustache.Str @&quot;world&quot;))
+; =&gt; &quot;Hello, world!&quot;
+</code></pre>
+<p>An <code>Mp</code> root also contributes its entries to <code>{{name}}</code> lookup, so it renders
+the same as the equivalent map handed to <code>template</code>. A <code>Lst</code> root iterates:
+<code>{{#.}}…{{/.}}</code> renders its body once per item, with the item bound as <code>{{.}}</code>
+in turn. Against a <code>Str</code> root a <code>{{name}}</code> tag has nothing to resolve against,
+so it renders empty and its section is skipped.</p>
+<p><code>template</code> leaves the top-level <code>{{.}}</code> unbound, which is the one way the two
+differ on a map: here a <code>.</code> key of an <code>Mp</code> root is shadowed by the root itself,
+and <code>{{#.}}</code> at the top level renders its body instead of being skipped.</p>
+<p>Use <code>template-root-with-partials</code> to supply partial sources from a map.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#template-root-with-partials">
+                        <h3 id="template-root-with-partials">
+                            template-root-with-partials
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref Mustache b), (Ref (Map String String) c)] String)
+                    </p>
+                    <pre class="args">
+                        (template-root-with-partials s root partials)
+                    </pre>
+                    <p class="doc">
+                        <p>templates the string <code>s</code> against the root
+context <code>root</code>, resolving <code>{{&gt; name}}</code> partials and <code>{{&lt;name}}</code> parents from
+<code>partials</code> before falling back to disk.</p>
+<pre><code>(Mustache.template-root-with-partials
+  &quot;&lt;ul&gt;{{&gt; item}}&lt;/ul&gt;&quot;
+  &amp;(Mustache.Str @&quot;Ada&quot;)
+  &amp;{@&quot;item&quot; @&quot;&lt;li&gt;{{.}}&lt;/li&gt;&quot;})
+; =&gt; &quot;&lt;ul&gt;&lt;li&gt;Ada&lt;/li&gt;&lt;/ul&gt;&quot;
+</code></pre>
+<p>See <code>template-root</code> for what a non-map root means, <code>template-with-partials</code>
+for how <code>partials</code> is resolved, and <code>template</code> for everything else about
+rendering.</p>
 
                     </p>
                 </div>

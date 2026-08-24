@@ -804,4 +804,49 @@ End
       &(template-with-partials "{{>self}}" &{} &{@"self" @"x{{>self}}"}))
     "a map partial naming itself stops at the depth limit")
   (assert-equal test "hi, mustache!
-" &(template "{{> test/file }}" &{@"name" (Mustache.Str @"mustache")}) "template still reads partials from disk"))
+" &(template "{{> test/file }}" &{@"name" (Mustache.Str @"mustache")}) "template still reads partials from disk")
+  (assert-equal test
+    "Hello, world!"
+    &(template-root "Hello, {{.}}!" &(Mustache.Str @"world"))
+    "a string root is bound as the implicit iterator")
+  (assert-equal test
+    "&amp; &quot; &lt; &gt; | & \" < >"
+    &(template-root "{{.}} | {{{.}}}" &(Mustache.Str @"& \" < >"))
+    "a string root escapes like any other interpolated value")
+  (assert-equal test
+    "(a)(b)"
+    &(template-root "{{#.}}({{value}}){{/.}}"
+                    &(Mustache.Lst
+                      [(Box.init
+                         (Mustache.Mp {@"value" (Box.init (Mustache.Str @"a"))}))
+                       (Box.init
+                         (Mustache.Mp {@"value" (Box.init (Mustache.Str @"b"))}))]))
+    "a list root iterates at the root-level implicit iterator")
+  (assert-equal test
+    "Ada is 36"
+    &(template-root "{{name}} is {{age}}"
+                    &(Mustache.Mp
+                      {@"name" (Box.init (Mustache.Str @"Ada"))
+                       @"age" (Box.init (Mustache.Str @"36"))}))
+    "a map root resolves plain names like the map handed to template")
+  (assert-equal test
+    "[]-skipped-inverted"
+    &(template-root
+      "[{{name}}]-{{#name}}section{{/name}}skipped-{{^name}}inverted{{/name}}"
+      &(Mustache.Str @"world"))
+    "a name is absent against a string root")
+  (assert-equal test
+    "yes: 1 2 "
+    &(template-root
+      "{{#.}}yes: {{#items}}{{.}} {{/items}}{{/.}}"
+      &(Mustache.Mp
+        {@"items" (Box.init
+           (Mustache.Lst
+             [(Box.init (Mustache.Str @"1")) (Box.init (Mustache.Str @"2"))]))}))
+    "a map root is truthy at the root-level implicit iterator")
+  (assert-equal test
+    "<ul><li>Ada</li></ul>"
+    &(template-root-with-partials "<ul>{{> item}}</ul>"
+                                  &(Mustache.Str @"Ada")
+                                  &{@"item" @"<li>{{.}}</li>"})
+    "a partial sees the root context of template-root-with-partials"))

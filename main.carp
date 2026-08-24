@@ -5,7 +5,9 @@ implementation for Carp.
 
 A template is rendered via `Mustache.template` against a context of type
 `(Map String Mustache)`. The `Mustache` sumtype carries the supported value
-kinds: strings, lists, nested maps, and lambdas.
+kinds: strings, lists, nested maps, and lambdas. `Mustache.template-root`
+renders against a root context of any `Mustache` value, for the templates
+whose top-level data is not an object.
 
 ```
 (Mustache.template
@@ -1207,4 +1209,53 @@ by the whole render, so a template that legitimately emits more than 1048576
 bytes — iterating over a very large list, say — is truncated too.")
   (defn template [s values]
     (let [no-partials (the (Map String String) {})]
-      (template-with-partials s values &no-partials))))
+      (template-with-partials s values &no-partials)))
+
+  (doc template-root-with-partials "templates the string `s` against the root
+context `root`, resolving `{{> name}}` partials and `{{<name}}` parents from
+`partials` before falling back to disk.
+
+```
+(Mustache.template-root-with-partials
+  \"<ul>{{> item}}</ul>\"
+  &(Mustache.Str @\"Ada\")
+  &{@\"item\" @\"<li>{{.}}</li>\"})
+; => \"<ul><li>Ada</li></ul>\"
+```
+
+See `template-root` for what a non-map root means, `template-with-partials`
+for how `partials` is resolved, and `template` for everything else about
+rendering.")
+  (defn template-root-with-partials [s root partials]
+    (let-do [nodes (parse s)
+             no-values (the (Map String Mustache) {})
+             frames [(frame-for root)]
+             overrides (the (Array (Array (Box Node))) [])
+             budget (the (Array Int) [max-work])]
+      (render-nodes &nodes &no-values partials &frames &overrides &budget 0)))
+
+  (doc template-root "templates a
+[Mustache](https://mustache.github.io/)-formatted string `s` against `root`,
+which may be any `Mustache` value and not just a map.
+
+`root` is bound as the implicit iterator `{{.}}` for the whole template:
+
+```
+(Mustache.template-root \"Hello, {{.}}!\" &(Mustache.Str @\"world\"))
+; => \"Hello, world!\"
+```
+
+An `Mp` root also contributes its entries to `{{name}}` lookup, so it renders
+the same as the equivalent map handed to `template`. A `Lst` root iterates:
+`{{#.}}…{{/.}}` renders its body once per item, with the item bound as `{{.}}`
+in turn. Against a `Str` root a `{{name}}` tag has nothing to resolve against,
+so it renders empty and its section is skipped.
+
+`template` leaves the top-level `{{.}}` unbound, which is the one way the two
+differ on a map: here a `.` key of an `Mp` root is shadowed by the root itself,
+and `{{#.}}` at the top level renders its body instead of being skipped.
+
+Use `template-root-with-partials` to supply partial sources from a map.")
+  (defn template-root [s root]
+    (let [no-partials (the (Map String String) {})]
+      (template-root-with-partials s root &no-partials))))
