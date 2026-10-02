@@ -846,7 +846,7 @@ input as long as the delimiters themselves are ASCII.")
     (match (Map.get-maybe partials name)
       (Maybe.Just s) (Maybe.Just s)
       (Maybe.Nothing)
-        (Result.to-maybe (IO.read-file &(format "%s.mustache" name)))))
+        (Result.to-maybe (IO.read-file &(unsafe-format "%s.mustache" name)))))
 
   (private render-nodes)
   (hidden render-nodes)
