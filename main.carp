@@ -168,55 +168,59 @@ input as long as the delimiters themselves are ASCII.")
       (Mustache.Mp _) false
       (Mustache.Lambda _) false))
 
-  ; Resolve a single (non-dotted) name against the frame stack from top
-  ; (newest) to bottom, falling through to user-ctx if unbound. Returns
-  ; Nothing when the name is absent everywhere. This avoids ever copying
-  ; user-ctx during rendering — only the tiny section frames get copied
-  ; when a new frame is pushed.
-  (private resolve-head)
-  (hidden resolve-head)
-  (defn resolve-head [user-ctx frames name]
-    (let-do [i (Int.dec (Array.length frames))
-             found (the (Maybe Mustache) (Maybe.Nothing))]
-      (while-do (and (>= i 0) (Maybe.nothing? &found))
-        (set! found (Map.get-maybe (Array.unsafe-nth frames i) name))
-        (set! i (Int.dec i)))
-      (match found
-        (Maybe.Just v) (Maybe.Just v)
-        (Maybe.Nothing) (Map.get-maybe user-ctx name))))
+  ; Borrows through core Map's bucket layout, which has no by-reference lookup.
+  (private bucket-of)
+  (hidden bucket-of)
+  (defn bucket-of [m k]
+    (Array.unsafe-nth (Map.buckets m)
+                      (Int.positive-mod (hash k) @(Map.n-buckets m))))
 
-  ; Descend one dotted segment into a value. Only an Mp can be descended,
-  ; and only when it holds `seg` as a key; anything else is Nothing.
+  ; Follow `segs` from index `i` through nested Mp values, copying only the last.
   (private descend)
   (hidden descend)
-  (defn descend [cur seg]
-    (match cur
-      (Mustache.Mp inner)
-        (match (Map.get-maybe &inner seg)
-          (Maybe.Just boxed) (Maybe.Just @(Box.peek &boxed))
-          (Maybe.Nothing) (Maybe.Nothing))
-      _ (Maybe.Nothing)))
-
-  ; Fold the tail segments of a dotted name over the resolved head value,
-  ; descending into nested Mp maps. A missing key or non-Mp step short-
-  ; circuits the whole name to Nothing.
-  (private descend-path)
-  (hidden descend-path)
-  (sig descend-path
-       (Fn [(Maybe Mustache) (Ref (Array String)) Int] (Maybe Mustache)))
-  (defn descend-path [cur segs i]
+  (sig descend
+       (Fn [(Ref Mustache q) (Ref (Array String) r) Int] (Maybe Mustache)))
+  (defn descend [cur segs i]
     (if (>= i (Array.length segs))
-      cur
-      (match cur
-        (Maybe.Nothing) (Maybe.Nothing)
-        (Maybe.Just v)
-          (descend-path (descend v (Array.unsafe-nth segs i)) segs (Int.inc i)))))
+      (Maybe.Just @cur)
+      (match-ref cur
+        (Mustache.Mp inner)
+          (let [seg (Array.unsafe-nth segs i)
+                b (bucket-of inner seg)
+                j (Bucket.find b seg)]
+            (if (< j 0)
+              (Maybe.Nothing)
+              (descend
+                (Box.peek (Pair.b (Array.unsafe-nth (Bucket.entries b) j)))
+                segs
+                (Int.inc i))))
+        _ (Maybe.Nothing))))
+
+  ; `head` must be a key of `m`.
+  (private descend-from)
+  (hidden descend-from)
+  (defn descend-from [m head segs]
+    (let [b (bucket-of m head)
+          j (Bucket.find b head)]
+      (descend (Pair.b (Array.unsafe-nth (Bucket.entries b) j)) segs 1)))
 
   ; A dotted name contains a `.` but is not the bare implicit-iterator `.`.
   (private dotted?)
   (hidden dotted?)
   (defn dotted? [name]
     (and (not (String.= name ".")) (>= (String.index-of name \.) 0)))
+
+  (private resolve-segs)
+  (hidden resolve-segs)
+  (defn resolve-segs [user-ctx frames head segs]
+    (let-do [i (Int.dec (Array.length frames))]
+      (while-do (and (>= i 0)
+                     (not (Map.contains? (Array.unsafe-nth frames i) head)))
+        (set! i (Int.dec i)))
+      (cond
+        (>= i 0) (descend-from (Array.unsafe-nth frames i) head segs)
+        (Map.contains? user-ctx head) (descend-from user-ctx head segs)
+        (Maybe.Nothing))))
 
   ; Resolve a possibly-dotted name to an owned value, or Nothing if it can't
   ; be resolved. The head segment searches the frame/context stack; every
@@ -226,11 +230,8 @@ input as long as the delimiters themselves are ASCII.")
   (defn resolve-name [user-ctx frames name]
     (if (dotted? name)
       (let [segs (String.split-by name &[\.])]
-        (descend-path
-          (resolve-head user-ctx frames (Array.unsafe-nth &segs 0))
-          &segs
-          1))
-      (resolve-head user-ctx frames name)))
+        (resolve-segs user-ctx frames (Array.unsafe-nth &segs 0) &segs))
+      (resolve-segs user-ctx frames name &[])))
 
   ; Turn an Mp's inner Map (String -> Box Mustache) into a frame-shaped
   ; Map (String -> Mustache) by unboxing each value.
