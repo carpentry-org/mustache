@@ -539,6 +539,38 @@ end
                  @"b" (Mustache.Mp {@"c" (Box.init (Mustache.Str @"ERROR"))})})
     "context precedence: dotted head fixes to the section frame b (empty), not top-level b.c")
   (assert-equal test
+    "o-i-o"
+    &(template
+      "{{#o}}{{x}}-{{#i}}{{x}}{{/i}}-{{x}}{{/o}}"
+      &{@"x" (Mustache.Str @"ctx")
+        @"o" (Mustache.Mp
+          {@"x" (Box.init (Mustache.Str @"o"))
+           @"i" (Box.init (Mustache.Mp {@"x" (Box.init (Mustache.Str @"i"))}))})})
+    "context precedence: the innermost frame binding a name wins")
+  (assert-equal test
+    "frame frame.b | ctx ctx.b"
+    &(template
+      "{{#s}}{{x}} {{a.b}}{{/s}} | {{x}} {{a.b}}"
+      &{@"x" (Mustache.Str @"ctx")
+        @"a" (Mustache.Mp {@"b" (Box.init (Mustache.Str @"ctx.b"))})
+        @"s" (Mustache.Mp
+          {@"x" (Box.init (Mustache.Str @"frame"))
+           @"a" (Box.init
+             (Mustache.Mp {@"b" (Box.init (Mustache.Str @"frame.b"))}))})})
+    "context precedence: a section frame shadows the context map")
+  (assert-equal test
+    "[]"
+    &(template "[{{#s}}{{a.b}}{{/s}}]"
+               &{@"s" (Mustache.Mp {@"a" (Box.init (Mustache.Str @"plain"))})
+                 @"a" (Mustache.Mp {@"b" (Box.init (Mustache.Str @"ERROR"))})})
+    "context precedence: a dotted head bound to a non-map hides the context map")
+  (assert-equal test
+    "[]"
+    &(template "[{{l.0}}{{m.s.c}}]"
+               &{@"l" (Mustache.Lst [(Box.init (Mustache.Str @"ERROR"))])
+                 @"m" (Mustache.Mp {@"s" (Box.init (Mustache.Str @"ERROR"))})})
+    "a dotted tail steps only into maps, not lists or strings")
+  (assert-equal test
     ""
     &(template "{{a.b}}" &{@"a.b" (Mustache.Str @"ERROR")})
     "a literal a.b map key is never matched by dotted {{a.b}} (name is split first)")
