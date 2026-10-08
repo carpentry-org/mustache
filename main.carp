@@ -1166,6 +1166,8 @@ The map must be from `String` to `Mustache`. Values can be:
   parsed with the delimiters active at the section tag, an interpolated one's
   with the default delimiters. An interpolated lambda is called once per
   occurrence, and what it renders to is escaped unless the tag is `{{{…}}}`.
+  A lambda must not modify the context being rendered (for example a global
+  map passed to `template`): the render keeps references into it.
 
 Example:
 
