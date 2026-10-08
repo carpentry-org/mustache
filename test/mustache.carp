@@ -341,6 +341,34 @@ Hello, (|&lambda|)!" &{@"planet" (Mustache.Str @"world")
       &{@"foo" (Mustache.Str @"bar")
         @"echo" (Mustache.Lambda (fn [b] b))})
     "a section lambda does not rebind the implicit iterator")
+  (assert-equal test
+    "t1-A t2-A "
+    &(template
+      "{{#posts}}{{#tags}}{{.}}-{{#author}}{{name}}{{/author}} {{/tags}}{{/posts}}"
+      &{@"posts" (Mustache.Lst
+          [(Box.init
+             (Mustache.Mp
+               {@"author" (Box.init
+                  (Mustache.Mp {@"name" (Box.init (Mustache.Str @"A"))}))
+                @"tags" (Box.init
+                  (Mustache.Lst
+                    [(Box.init (Mustache.Str @"t1"))
+                     (Box.init (Mustache.Str @"t2"))]))}))])})
+    "a section found in an outer frame renders against that frame's value")
+  (assert-equal test
+    "[12][3]"
+    &(template "{{#rows}}[{{#.}}{{.}}{{/.}}]{{/rows}}"
+               &{@"rows" (Mustache.Lst
+                   [(Box.init
+                      (Mustache.Lst
+                        [(Box.init (Mustache.Str @"1"))
+                         (Box.init (Mustache.Str @"2"))]))
+                    (Box.init (Mustache.Lst [(Box.init (Mustache.Str @"3"))]))])})
+    "an implicit-iterator section iterates a list nested in a list")
+  (assert-equal test
+    "dot"
+    &(template "{{.}}" &{@"." (Mustache.Str @"dot")})
+    "template resolves a top-level {{.}} against a . key of the context")
   ; standalone tag whitespace handling
   (assert-equal test "Begin
 End
@@ -876,6 +904,14 @@ End
            (Mustache.Lst
              [(Box.init (Mustache.Str @"1")) (Box.init (Mustache.Str @"2"))]))}))
     "a map root is truthy at the root-level implicit iterator")
+  (assert-equal test
+    "[][]"
+    &(template-root "[{{.}}]{{#m}}[{{.}}]{{/m}}"
+                    &(Mustache.Mp
+                      {@"." (Box.init (Mustache.Str @"dot"))
+                       @"m" (Box.init
+                         (Mustache.Mp {@"." (Box.init (Mustache.Str @"dot"))}))}))
+    "a map's own . key is shadowed by the map itself at {{.}}")
   (assert-equal test
     "<ul><li>Ada</li></ul>"
     &(template-root-with-partials "<ul>{{> item}}</ul>"

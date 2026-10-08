@@ -192,6 +192,9 @@ effect at the tag, and the lambda is called again for every occurrence. What
 it renders to is escaped for `{{ lambda }}` and left alone for
 `{{{ lambda }}}`.
 
+A lambda must not modify the context being rendered (for example a global
+map passed to `Mustache.template`): the render keeps references into it.
+
 ### Partials
 
 `{{> name}}` loads `name.mustache` from disk and renders it with the
